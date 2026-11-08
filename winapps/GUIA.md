@@ -54,9 +54,9 @@ Cada programa da biblioteca tem um selo. A aba **Compatibilidade** é uma tabela
 filtro de todos os testados; clique numa linha para ver detalhes e as correções do WinApps.
 
 - **Verificado**: testado de ponta a ponta, com correções próprias do WinApps. Garantido
-  nesta versão (ex.: Power BI, RubinOT, Notepad++).
+  nesta versão (ex.: Power BI, Notepad++).
 - **Funciona**: testado; abre e o uso principal funciona.
-- **Parcial**: funciona com limitações.
+- **Parcial**: funciona com limitações (ex.: RubinOT).
 - **Não funciona**: não roda no WinApps; há uma alternativa indicada.
 - **Não testado**: ninguém conferiu ainda; pode funcionar.
 
@@ -179,5 +179,5 @@ lista. Os mais úteis:
 
 ## Créditos
 
-O WinApps usa componentes de software livre. Os créditos e as licenças ficam no menu ⋯ →
-**Créditos e licenças**.
+O WinApps é software livre e usa outros componentes de software livre. Os créditos e as
+licenças ficam no menu ⋯ → **Sobre o WinApps** (antes chamado "Créditos e licenças").

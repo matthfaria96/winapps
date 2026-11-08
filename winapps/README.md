@@ -1,203 +1,210 @@
 # WinApps
 
-Roda programas do Windows (`.exe`, `.msi`) no Mac com um motor de compatibilidade próprio.
-Cada programa vira um app
-do Mac, com nome e ícone próprios.
+Runs Windows programs (`.exe`, `.msi`) on the Mac with its own compatibility engine. Each
+program becomes a Mac app with its own name and icon.
 
-- **Para quem usa:** leia o **[GUIA.md](GUIA.md)**. É o mesmo texto que aparece no app, em
-  *Ajuda → Guia do WinApps* ou no menu ⋯. Ele cobre como instalar programas, o Power BI e
-  programas parecidos, e o que fazer quando algo dá errado.
-- **Este README** é para quem compila e mantém o WinApps.
+- **If you use WinApps:** read the **[GUIDE.md](GUIDE.md)** ([GUIA.md](GUIA.md) in
+  Portuguese). It's the same text the app shows under *Help → WinApps Guide* and in the ⋯
+  menu. It covers installing programs, Power BI and similar programs, and what to do when
+  something goes wrong.
+- **This README** is for people who build and maintain WinApps.
 
-## Compilar
+## Building
 
 ```bash
-bash engine/build-engine.sh --build-only   # motor com as correções (~5 min na 1ª vez)
-bash engine/build-dxmt.sh                  # DXMT com as correções (~3 min)
+bash engine/build-engine.sh --build-only   # engine with the fixes (~5 min the first time)
+bash engine/build-dxmt.sh                  # DXMT with the fixes (~3 min)
 cd winapps
-bash vendor.sh                             # junta tudo em vendor/
-bash build.sh                              # WinApps.app em ~/Applications
+bash vendor.sh                             # gathers everything in vendor/
+bash build.sh                              # WinApps.app in ~/Applications
 ```
 
-Os dois scripts do motor precisam do Homebrew; eles instalam `bison`, `flex`, `freetype`,
-`autoconf`, `mingw-w64`, `meson` e `ninja` se faltarem. Quem baixa o app pronto não precisa
-de nada disso.
+Both engine scripts need Homebrew; they install `bison`, `flex`, `freetype`, `autoconf`,
+`mingw-w64`, `meson` and `ninja` if missing. `build-engine.sh` also needs the base engine
+already downloaded (**Set Up Windows** or `winapps setup`), because it checks the new modules
+against the originals. People who download the ready-made app need none of this.
 
-Na primeira vez, **Preparar o Windows** (ou `winapps setup`) faz o seguinte:
+The first time, **Set Up Windows** (or `winapps setup`) does the following:
 
-1. instala o Rosetta 2, se faltar;
-2. baixa a base do motor (versão 11.21; origem e licenças em [LICENCAS.md](LICENCAS.md))
-   (~225 MB) e troca os módulos corrigidos (originais guardados como `*.orig`);
-3. liga o DXMT (Direct3D 10/11 → Metal);
-4. cria o ambiente Windows em português, com as pastas e o visual do Mac;
-5. instala o ambiente base: fontes, Visual C++ 2008–2022, d3dx9, d3dcompiler_47,
-   .NET Framework 4.8 (pré-compilado), metadados WinRT e WebView2 — tudo o que os programas
-   testados precisam. **Um único ambiente para todos os programas** (nada é replicado);
-   receitas de programas (ex.: `programas/rubinot/install.sh`) só acrescentam o que é deles.
+1. installs Rosetta 2 if it's missing;
+2. downloads the engine base (version 11.21; origin and licenses in
+   [LICENSES.md](LICENSES.md)) (~225 MB) and swaps in the patched modules (originals kept as
+   `*.orig`);
+3. turns on DXMT (Direct3D 10/11 → Metal);
+4. creates the Windows environment in the Mac's language, with the Mac's folders and look;
+5. installs the base environment: fonts, Visual C++ 2008–2022, d3dx9, d3dcompiler_47,
+   .NET Framework 4.8 (precompiled), WinRT metadata and WebView2 — everything the tested
+   programs need. **A single environment for all programs** (nothing is duplicated);
+   program recipes (e.g. `programas/rubinot/install.sh`) only add what is specific to them.
 
-### O que vai dentro do app
+### What goes inside the app
 
-| Arquivo | Para quê |
+| File | Purpose |
 |---|---|
-| `winapps` | o script que faz todo o trabalho (o app só chama ele) |
-| `GUIA.md` | guia do usuário, exibido no app |
-| `compat.json` | programas conhecidos: status, selo Verificado, data do teste, correções, nome do atalho, componentes |
-| `compat-md.py` | gera `COMPATIBILIDADE.md` (raiz do repositório) a partir do `compat.json`; roda no `build.sh` |
-| `exe-kind.py` | instalador × portátil, nome do programa, componentes (`--needs`), compatibilidade |
-| `exe-icon.py` + `icon-frame` | ícone do `.exe` numa placa branca no formato do macOS |
-| `ntlm_auth` | login Windows local entre processos do mesmo usuário (ver abaixo) |
-| `vendor/winetricks`, `vendor/cabextract` | componentes do Windows |
-| `vendor/engine-11.21/` | `x86_64-unix/{win32u,winemac,ntdll}.so`, `x86_64-windows/{dcomp,secur32}.dll` |
-| `vendor/dxmt-v0.80/` | DXMT oficial + `dxgi.dll`/`d3d11.dll` compilados com `patches/dxmt` |
+| `winapps` | the script that does all the work (the app just calls it) |
+| `GUIDE.md`, `GUIA.md` | user guide shown in the app (English, Portuguese) |
+| `LICENSES.md`, `LICENCAS.md` | credits and licenses (English, Portuguese) |
+| `compat.json` | known programs: status, Verified badge, test date, fixes, shortcut name, components |
+| `compat-md.py` | generates the compatibility tables at the repository root from `compat.json`; runs in `build.sh` |
+| `exe-kind.py` | installer vs. standalone, program name, components (`--needs`), compatibility |
+| `exe-icon.py` + `icon-frame` | the `.exe` icon on a white plate shaped like macOS icons |
+| `ntlm_auth` | local Windows sign-in between processes of the same user (see below) |
+| `vendor/winetricks`, `vendor/cabextract` | Windows components |
+| `vendor/engine-11.21/` | `x86_64-unix/{win32u,winemac,ntdll}.so`, `x86_64-windows/{dcomp,secur32,mshtml,ole32}.dll`, `winecfg.exe`, `i386-windows/ole32.dll` |
+| `vendor/dxmt-v0.80/` | official DXMT + `dxgi.dll`/`d3d11.dll` built with `patches/dxmt` |
 
-O app copia esses arquivos para `~/Library/Application Support/WinApps/bin` e `vendor/`,
-que é de onde os atalhos usam.
+The app copies these files to `~/Library/Application Support/WinApps/bin` and `vendor/`,
+which is where the shortcuts use them from.
 
-## Correções no motor
+## Engine patches
 
-Gerais em [`../patches/`](../patches/); as que só um programa usa ficam em
-`../programas/<nome>/patches/` (coluna "Pasta"). O `engine/build-engine.sh` aplica todas na
-ordem do número, sobre o
-código-base do motor (versão 11.21, ver LICENCAS.md). Ele confere que os módulos novos exportam
-as mesmas funções e ligam nas mesmas bibliotecas que os originais.
+General ones are in [`../patches/`](../patches/); those only one program uses live in
+`../programas/<name>/patches/` (program in parentheses). `engine/build-engine.sh` applies all
+of them in number order on top of the engine source (version 11.21, see LICENSES.md). It
+checks that the new modules export the same functions and link against the same libraries
+as the originals.
 
-| Patch | Módulo | O que corrige |
+| Patch | Module | What it fixes |
 |---|---|---|
-| `0003` | win32u | barra de menu presa na largura antiga |
-| `0004` | winemac | menu do programa na barra de menus do macOS (`NativeMenuBar`) |
-| `0005` | winemac | tabela `macdrv_functions` para o DXMT |
-| `0006` | win32u, winemac | janela-filha de **outro processo** (WebView2): a filha publica um `CAContext` (GDI ou Metal) e o processo dono da janela mostra com `CALayerHost` |
-| `0007` | dcomp | DirectComposition liga a swapchain de composição do DXMT à janela |
-| `0008` | ntdll (power-bi) | `NtImpersonateAnonymousToken` e uso de memória real no macOS (Analysis Services) |
+| `0003` | win32u | menu bar stuck at the old width |
+| `0004` | winemac | the program's menu in the macOS menu bar (`NativeMenuBar`) |
+| `0005` | winemac | `macdrv_functions` table for DXMT |
+| `0006` | win32u, winemac | child window owned by **another process** (WebView2): the child publishes a `CAContext` (GDI or Metal) and the process that owns the window shows it with a `CALayerHost` |
+| `0007` | dcomp | DirectComposition binds DXMT's composition swapchain to the window |
+| `0008` | ntdll (power-bi) | `NtImpersonateAnonymousToken` and real memory usage on macOS (Analysis Services) |
 | `0009` | secur32 (power-bi) | `ImpersonateSecurityContext` / `RevertSecurityContext` / `QuerySecurityContextToken` |
-| `0010` | winemac | filhas remotas acompanham mudanças e troca de janela-mãe dos ancestrais |
-| `0011` | winemac | processos auxiliares sem ícone próprio no Dock (`GroupHelperProcesses=n` desliga) |
-| `0012` | winemac | filhas remotas empilhadas na ordem de pintura do Windows |
-| `0013` | winemac | compõe as filhas remotas assim que a janela aparece (antes: só quando ficava ativa → tela cinza) |
-| `0014` | winemac | programas com barra de título própria: sombra e redimensionamento do Mac, Janela → Preencher/lado a lado, arrastar a barra de janela maximizada a solta, soltar no topo maximiza e nas bordas encaixa na metade |
-| `0015` | winemac | barra de título do Mac desenhada por cima da barra própria do programa (altura medida com `WM_NCHITTEST`), botões nativos, arrastar/duplo clique, menu Janela → "Mostrar a Barra do Programa"; menus do programa por receita (`MacMenu`, de `mac_menu` no `compat.json`) que apertam os atalhos dele; opção `MacTitleBar` (`winapps titlebar`) |
-| `0016` | mshtml (power-bi) | o zoom que programas com DPI alto pedem ao HTML (ex.: 200% no Retina) passa a ser relativo à escala que o Gecko já aplica; antes ficava 4× e telas como o login do Power BI saíam cortadas |
-| `0017` | ntdll | binários com nomes próprios (`WinApps`, `WinApps Server`); o motor pode ser o executável de um app (programa, pasta, log, idioma e "manter aquecido" vêm do ambiente) |
-| `0018` | winecfg | título "Configurações do Windows" |
-| `0019` | winemac (rubinot) | minimizar o RubinOT esconde o app (o cliente perde a imagem ao miniaturizar) |
-| `0020` | winemac | superfície do DXMT acompanha o tamanho da janela; imagem esticada até a view |
-| `0002` | ole32 (rubinot) | `RevokeDragDrop` em janela de outro processo (32 e 64-bit) |
-| `dxmt/0001` | DXMT | compila sem o compilador Metal (metallib do pacote oficial embutido) |
+| `0010` | winemac | remote children follow changes and reparenting of their ancestors |
+| `0011` | winemac | helper processes without their own Dock icon (`GroupHelperProcesses=n` turns it off) |
+| `0012` | winemac | remote children stacked in Windows paint order |
+| `0013` | winemac | composites remote children as soon as the window appears (before: only once it became active → gray screen) |
+| `0014` | winemac | programs with their own title bar: Mac shadow and resizing, Window → Fill/tile, dragging a maximized window's bar restores it, dropping at the top maximizes and at the edges snaps to half |
+| `0015` | winemac | Mac title bar drawn over the program's own bar (height measured with `WM_NCHITTEST`), native buttons, drag/double-click, Window → "Show Program Title Bar"; program menus from recipes (`MacMenu`, from `mac_menu` in `compat.json`) that press the program's shortcuts; `MacTitleBar` option (`winapps titlebar`) |
+| `0016` | mshtml (power-bi) | the zoom high-DPI programs ask HTML for (e.g. 200% on Retina) becomes relative to the scale Gecko already applies; before it ended up 4× and screens like the Power BI sign-in were cut off |
+| `0017` | ntdll | binaries with their own names (`WinApps`, `WinApps Server`); the engine can be an app's executable (program, folder, log, language and "keep warm" come from the environment) |
+| `0018` | winecfg | "Windows Settings" title |
+| `0019` | winemac (rubinot) | minimizing RubinOT hides the app (the client loses its image when miniaturized) |
+| `0020` | winemac | DXMT surface follows the window size; image stretched to the view |
+| `0002` | ole32 (rubinot) | `RevokeDragDrop` on another process's window (32- and 64-bit) |
+| `dxmt/0001` | DXMT | builds without the Metal compiler (metallib from the official package embedded) |
 | `dxmt/0002–0003` | DXMT | `CreateSwapChainForComposition` (Chromium via DirectComposition) |
-| `dxmt/0004` | DXMT | `SwapDeviceContextState` mínimo (usado pelo Direct2D; antes o programa caía) |
+| `dxmt/0004` | DXMT | minimal `SwapDeviceContextState` (used by Direct2D; before, the program crashed) |
 
-`winapps engine-patch` reinstala os módulos do `vendor/`; `bash engine/build-engine.sh
---restore` volta para os originais do Gcenx.
+`winapps engine-patch` reinstalls the modules from `vendor/`; `bash engine/build-engine.sh
+--restore` goes back to Gcenx's originals.
 
-### Por que o WebView2 precisou de tudo isso
+### Why WebView2 needed all of this
 
-O WebView2 (Chromium) desenha numa janela-filha que pertence a outro processo
-(`msedgewebview2.exe`), e no macOS um processo não pode desenhar na janela de outro. A
-cadeia que funciona é esta:
+WebView2 (Chromium) draws into a child window that belongs to another process
+(`msedgewebview2.exe`), and on macOS one process can't draw into another's window. The
+chain that works is:
 
-1. o processo de GPU do Chromium apresenta pelo DirectComposition (`dcomp` + 0007);
-2. o DXMT cria uma swapchain de composição (`patches/dxmt`) que desenha num `CAMetalLayer`
-   dentro de um `CAContext` (0006);
-3. o id do contexto vai num cabeçalho de 64 bytes em
-   `$TMPDIR/winemac-remote-<uid>-<hash>/<janela-raiz>/<hwnd>-<n>.surf`;
-4. o processo dono da janela mostra cada filha com um `CALayerHost`, na posição, na
-   visibilidade e na ordem de pintura do Windows (0010, 0012).
+1. Chromium's GPU process presents through DirectComposition (`dcomp` + 0007);
+2. DXMT creates a composition swapchain (`patches/dxmt`) that draws into a `CAMetalLayer`
+   inside a `CAContext` (0006);
+3. the context id goes into a 64-byte header at
+   `$TMPDIR/winemac-remote-<uid>-<hash>/<root-window>/<hwnd>-<n>.surf`;
+4. the process that owns the window shows each child with a `CALayerHost`, at the Windows
+   position, visibility and paint order (0010, 0012).
 
-O Power BI mantém 5 WebViews visíveis e sobrepostas e escolhe a ativa pela ordem de
-empilhamento. Por isso o 0012 é necessário.
+Power BI keeps 5 visible, overlapping WebViews and picks the active one by stacking order.
+That's why 0012 is needed.
 
-### Login Windows local (`ntlm_auth.c`)
+### Local Windows sign-in (`ntlm_auth.c`)
 
-O Power BI conversa com o Analysis Services local usando autenticação integrada do
-Windows (NTLM). O motor delega o NTLM a um programa externo `ntlm_auth`, que não existe no
-Mac. O `ntlm_auth` do WinApps só autentica processos do mesmo usuário: os dois lados
-provam que leem a chave `~/Library/Application Support/WinApps/ntlm-local.key` (0600). O
-script põe `bin/` no `PATH` do motor.
+Power BI talks to the local Analysis Services using integrated Windows authentication
+(NTLM). The engine delegates NTLM to an external `ntlm_auth` program, which doesn't exist on
+the Mac. WinApps' `ntlm_auth` only authenticates processes of the same user: both sides
+prove they can read the key `~/Library/Application Support/WinApps/ntlm-local.key` (0600).
+The script puts `bin/` on the engine's `PATH`.
 
-## Componentes
+## Components
 
-`winapps components <nome>` aceita os do winetricks e dois próprios:
+`winapps components <name>` accepts the winetricks ones and two of its own:
 
-| Componente | O que faz |
+| Component | What it does |
 |---|---|
-| `winrt-metadata` | baixa da Microsoft (NuGet `Microsoft.Windows.SDK.Contracts` 10.0.26100.1742, SHA-256 conferido) os `.winmd` reais e guarda os parciais do motor em `windows/WinMetadata.wine-bak`. Sem isso o Power BI falha com `TypeLoadException` |
-| `webview2` | instala o WebView2 Runtime oficial (x64), se faltar |
+| `winrt-metadata` | downloads the real `.winmd` files from Microsoft (NuGet `Microsoft.Windows.SDK.Contracts` 10.0.26100.1742, SHA-256 checked) and keeps the engine's partial ones in `windows/WinMetadata.wine-bak`. Without this, Power BI fails with `TypeLoadException` |
+| `webview2` | installs the official WebView2 Runtime (x64) if it's missing |
 
-Depois de `dotnet40`–`dotnet48`, o script volta o Windows para a versão 10, porque o
-winetricks deixa em Windows 7. Os componentes que cada programa exige vêm do campo `needs`
-no `compat.json` e da análise do `.exe` (`exe-kind.py --needs`).
+After `dotnet40`–`dotnet48`, the script sets Windows back to version 10, because winetricks
+leaves it at Windows 7. The components each program requires come from the `needs` field in
+`compat.json` and from analyzing the `.exe` (`exe-kind.py --needs`).
 
-## Instaladores e desempenho
+## Installers and performance
 
-- **Instaladores WiX "Burn" com interface .NET** (`mbahost.dll`, ex.: o do Power BI) travam
-  no motor ao carregar a interface. O `winapps install` lê o manifesto do pacote, extrai os
-  `.msi` embutidos com o `cabextract`, confere o SHA-1 e roda cada um com o `msiexec`.
-  `WINAPPS_MSI_ARGS="/qn ACCEPT_EULA=1"` instala sem telas.
-- **.NET pré-compilado (`winapps optimize [programa.exe]`).** No Windows o .NET Framework
-  vem compilado para o processador (NGEN); sem isso, cada abertura recompila tudo e o
-  Rosetta ainda traduz o resultado. O serviço de pré-compilação (`mscorsvw.exe`) trava em
-  loop no motor e fica desligado; o `ngen` síncrono funciona e liga o `mscorsvw` só durante
-  a chamada. O log fica em `~/Library/Logs/WinApps/ngen.log`.
-- **Controles de jogo (`winapps gamepad`).** O backend SDL do `winebus` consulta os
-  controles sem parar: ~7% de CPU contínuo por ambiente aberto (medido no
-  `winedevice.exe`: 2 s de CPU a cada 30 s). O padrão é só IOHID (`Enable SDL`=0).
+- **WiX "Burn" installers with a .NET interface** (`mbahost.dll`, e.g. Power BI's) hang in
+  the engine while loading the interface. `winapps install` reads the bundle manifest,
+  extracts the embedded `.msi` files with `cabextract`, checks their SHA-1 and runs each one
+  with `msiexec`. `WINAPPS_MSI_ARGS="/qn ACCEPT_EULA=1"` installs without any screens.
+- **Precompiled .NET (`winapps optimize [program.exe]`).** On Windows, the .NET Framework
+  comes compiled for the processor (NGEN); without that, every launch recompiles everything
+  and Rosetta then translates the result. The precompilation service (`mscorsvw.exe`) loops
+  in the engine and stays off; synchronous `ngen` works and turns `mscorsvw` on only for the
+  duration of the call. The log is at `~/Library/Logs/WinApps/ngen.log`.
+- **Game controllers (`winapps gamepad`).** The `winebus` SDL backend polls controllers
+  nonstop: ~7% CPU continuously per open environment (measured on `winedevice.exe`: 2 s of
+  CPU every 30 s). The default is IOHID only (`Enable SDL`=0).
 
 ## Terminal
 
-| Comando | O que faz |
+| Command | What it does |
 |---|---|
-| `winapps setup` | baixa o motor e cria o ambiente |
-| `winapps install setup.exe` | roda o instalador e lista os `.exe` novos |
-| `winapps shortcut "<.exe>" ["Nome"]` | cria `~/Applications/Nome.app`; sem nome, usa o `compat.json` ou o nome do produto |
-| `winapps name <.exe>` | o nome que o atalho receberia |
-| `winapps run programa.exe` | executa direto |
-| `winapps detect` / `needs` / `compat` `<arquivo>` | análise do arquivo |
-| `winapps components [nomes]` | instala componentes (sem nomes: os essenciais) |
-| `winapps list` / `remove Nome` / `rebuild` | atalhos (o `rebuild` mantém o ambiente de cada um) |
+| `winapps setup` | downloads the engine and creates the environment |
+| `winapps install setup.exe` | runs the installer and lists the new `.exe` files |
+| `winapps shortcut "<.exe>" ["Name"]` | creates `~/Applications/Name.app`; without a name, uses `compat.json` or the product name |
+| `winapps name <.exe>` | the name the shortcut would get |
+| `winapps run program.exe` | runs it directly |
+| `winapps detect` / `needs` / `compat` `<file>` | file analysis |
+| `winapps components [names]` | installs components (no names: the essentials) |
+| `winapps list` / `remove Name` / `rebuild` | shortcuts (`rebuild` keeps each one's environment) |
 | `winapps dxmt on\|off\|status` | Direct3D 10/11 via Metal |
-| `winapps gamepad on\|off\|status` | controles de jogo via SDL (padrão: off, sem gasto de CPU) |
-| `winapps optimize [programa.exe]` | pré-compila o .NET Framework (sem argumento) ou um programa .NET |
-| `winapps menubar <prog.exe>\|--all on\|off` | menu do programa na barra do Mac |
-| `winapps engine-patch` | reinstala o motor corrigido do `vendor/` |
-| `winapps kill` / `config` / `tidy` / `drive` | fechar tudo / configurações do Windows / pastas e idioma / abrir o C: |
+| `winapps gamepad on\|off\|status` | game controllers via SDL (default: off, no CPU cost) |
+| `winapps optimize [program.exe]` | precompiles the .NET Framework (no argument) or a .NET program |
+| `winapps menubar <prog.exe>\|--all on\|off` | the program's menu in the Mac menu bar |
+| `winapps titlebar <prog.exe>\|--all on\|off` | the Mac title bar over the program's own bar |
+| `winapps engine-patch` | reinstalls the patched engine from `vendor/` |
+| `winapps kill` / `config` / `tidy` / `drive` | quit everything / Windows settings / folders and language / open C: |
 
-## Onde fica cada coisa
+## Where things live
 
-- Motor: `~/Library/Application Support/WinApps/motor` (pasta interna; não é um app do macOS)
-- Ambiente Windows: `~/Library/Application Support/WinApps/prefixes/default` (um só, para todos
-  os programas; `WINAPPS_PREFIX` existe só para testes de desenvolvimento)
-- Atalhos: `~/Applications/*.app`. O executável de cada atalho **é o motor**, com o nome do
-  programa (`Contents/MacOS/<Nome>`, assinado localmente); as configurações vão no
-  `LSEnvironment` do `Info.plist` (`WINEPREFIX`, `WINAPPS_PROGRAM`, `WINAPPS_LOG`,
-  `WINAPPS_LANG`, `WINAPPS_PERSIST`). Assim o macOS (Dock, Cmd-Tab, Monitor de Atividade,
-  apps de prévia de janelas como o Sirena) vê um app só, com o ID, o nome e o ícone do atalho.
-  O `Info.plist` também guarda `WinAppsExe` e `WinAppsPrefix`.
-- Logs: `~/Library/Logs/WinApps/`; downloads em cache: `~/Library/Caches/WinApps/downloads`
+- Engine: `~/Library/Application Support/WinApps/motor` (internal folder; not a macOS app)
+- Windows environment: `~/Library/Application Support/WinApps/prefixes/default` (just one, for
+  all programs; `WINAPPS_PREFIX` exists only for development tests)
+- Shortcuts: `~/Applications/*.app`. Each shortcut's executable **is the engine**, named after
+  the program (`Contents/MacOS/<Name>`, signed locally); settings go in the `Info.plist`
+  `LSEnvironment` (`WINEPREFIX`, `WINAPPS_PROGRAM`, `WINAPPS_LOG`, `WINAPPS_LANG`,
+  `WINAPPS_PERSIST`). That way macOS (Dock, ⌘ Tab, Activity Monitor, window preview apps
+  like Sirena) sees a single app, with the shortcut's ID, name and icon. The `Info.plist`
+  also stores `WinAppsExe` and `WinAppsPrefix`.
+- Logs: `~/Library/Logs/WinApps/`; cached downloads: `~/Library/Caches/WinApps/downloads`
 
-## Testes
+## Tests
 
-`tests/` tem programas mínimos para isolar problemas. Para compilá-los, use
-`x86_64-w64-mingw32-gcc` ou `tests/tools/build-tests.sh`.
+`tests/` has minimal programs to isolate problems. Build them with
+`x86_64-w64-mingw32-gcc` or `tests/tools/build-tests.sh`.
 
-| Teste | O que verifica |
+| Test | What it checks |
 |---|---|
-| `d3d11test.c` | triângulo Direct3D 11 (DXMT) |
-| `wv2test.c` | WebView2 mínimo; `popup` abre uma 2ª WebView numa janela pop-up |
-| `xproctest.c` | um processo pinta dentro da janela de outro (GDI e `d3d`) |
-| `docktest.c` | processo-filho com janela não ganha ícone no Dock |
+| `d3d11test.c` | Direct3D 11 triangle (DXMT) |
+| `wv2test.c` | minimal WebView2; `popup` opens a 2nd WebView in a pop-up window |
+| `xproctest.c` | one process paints inside another's window (GDI and `d3d`) |
+| `docktest.c` | a child process with a window doesn't get a Dock icon |
 
-Ferramentas em `tests/tools/`: `wv2run.sh`, `cdp.py` (DevTools),
-`mdmp.py` (crash dumps), `devinstall.sh` e `dxmt-devinstall.sh` (instalar módulos durante
-o desenvolvimento). Testes de um programa só ficam em `../programas/<nome>/testes/`.
+Tools in `tests/tools/`: `wv2run.sh`, `cdp.py` (DevTools), `mdmp.py` (crash dumps),
+`devinstall.sh` and `dxmt-devinstall.sh` (install modules during development). Tests for a
+single program live in `../programas/<name>/testes/`.
 
-## Limitações conhecidas
+## Known limitations
 
-- O motor depende do Rosetta 2, que a Apple vai restringir a partir do macOS 28.
-- Não funcionam: jogos com proteção de kernel, Office/Teams atuais (Click-to-Run/MSIX), Adobe, Direct3D 12.
-- Power BI: o login na conta Microsoft e a publicação no serviço não foram testados. Às
-  vezes um diálogo HTML aparece deslocado.
+- The engine depends on Rosetta 2, which Apple will restrict starting with macOS 28.
+- Not supported: games with kernel-level protection, current Office/Teams (Click-to-Run/MSIX),
+  Adobe, Direct3D 12.
+- Power BI: signing in to a Microsoft account and publishing to the service haven't been
+  tested. An HTML dialog sometimes appears out of place.
 
-## Créditos e licenças
+## Credits and licenses
 
-O motor e os componentes incluídos são software livre. Os avisos, as licenças e onde estão
-as modificações ficam em [LICENCAS.md](LICENCAS.md), que acompanha o app.
+WinApps is GPL-3.0; the engine patches are LGPL-2.1-or-later. The engine and the included
+components are free software. Notices, licenses and where the changes live are in
+[LICENSES.md](LICENSES.md) ([LICENCAS.md](LICENCAS.md) in Portuguese), which ships with the
+app.

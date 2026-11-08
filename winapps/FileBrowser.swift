@@ -5,7 +5,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-struct FileItem: Identifiable, Hashable {
+struct FileItem: Identifiable, Hashable, Sendable {
     let id: URL
     let name: String
     let isDir: Bool
@@ -39,31 +39,36 @@ final class Pane: ObservableObject {
         switch side {
         case .mac:
             var p = [
-                Place(name: "Pasta pessoal", symbol: "house.fill", url: h),
-                Place(name: "Mesa", symbol: "menubar.dock.rectangle", url: h.appendingPathComponent("Desktop")),
-                Place(name: "Documentos", symbol: "doc.fill", url: h.appendingPathComponent("Documents")),
-                Place(name: "Downloads", symbol: "arrow.down.circle.fill", url: h.appendingPathComponent("Downloads")),
-                Place(name: "Imagens", symbol: "photo.fill", url: h.appendingPathComponent("Pictures")),
+                Place(name: L("Home"), symbol: "house.fill", url: h),
+                Place(name: L("Desktop"), symbol: "menubar.dock.rectangle", url: h.appendingPathComponent("Desktop")),
+                Place(name: L("Documents"), symbol: "doc.fill", url: h.appendingPathComponent("Documents")),
+                Place(name: L("Downloads"), symbol: "arrow.down.circle.fill", url: h.appendingPathComponent("Downloads")),
+                Place(name: L("Pictures"), symbol: "photo.fill", url: h.appendingPathComponent("Pictures")),
             ]
             let icloud = h.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
             if fm.fileExists(atPath: icloud.path) {
                 p.append(Place(name: "iCloud Drive", symbol: "icloud.fill", url: icloud))
             }
-            p.append(Place(name: "Discos externos", symbol: "externaldrive.fill", url: URL(fileURLWithPath: "/Volumes")))
+            p.append(Place(name: L("External Drives"), symbol: "externaldrive.fill", url: URL(fileURLWithPath: "/Volumes")))
             places = p
-            url = h.appendingPathComponent("Downloads")
+            // a pasta pessoal não pede permissão; Downloads/Mesa/Documentos pedem (TCC) e só quando o usuário entrar
+            url = h
+            // capturas de tela: -WinAppsFilesMac <pasta> abre o painel do Mac nessa pasta
+            if let f = UserDefaults.standard.string(forKey: "WinAppsFilesMac"), fm.fileExists(atPath: f) { url = URL(fileURLWithPath: f) }
         case .windows:
             let c = Paths.driveC
             let user = c.appendingPathComponent("users/\(NSUserName())")
             places = [
-                Place(name: "Disco C:", symbol: "internaldrive.fill", url: c),
-                Place(name: "Programas (Program Files)", symbol: "shippingbox.fill", url: c.appendingPathComponent("Program Files")),
-                Place(name: "Programas 32-bit (x86)", symbol: "shippingbox", url: c.appendingPathComponent("Program Files (x86)")),
-                Place(name: "Portáteis", symbol: "bolt.fill", url: c.appendingPathComponent("Portable")),
-                Place(name: "Usuário do Windows", symbol: "person.fill", url: user),
-                Place(name: "AppData (saves e configurações)", symbol: "gearshape.fill", url: user.appendingPathComponent("AppData")),
+                Place(name: L("Drive C:"), symbol: "internaldrive.fill", url: c),
+                Place(name: L("Programs (Program Files)"), symbol: "shippingbox.fill", url: c.appendingPathComponent("Program Files")),
+                Place(name: L("32-bit Programs (x86)"), symbol: "shippingbox", url: c.appendingPathComponent("Program Files (x86)")),
+                Place(name: L("Portable Programs"), symbol: "bolt.fill", url: c.appendingPathComponent("Portable")),
+                Place(name: L("Windows User"), symbol: "person.fill", url: user),
+                Place(name: L("AppData (Saves and Settings)"), symbol: "gearshape.fill", url: user.appendingPathComponent("AppData")),
             ]
             url = c
+            // capturas de tela: -WinAppsFilesWin "Portable" abre o painel do Windows em C:\Portable
+            if let f = UserDefaults.standard.string(forKey: "WinAppsFilesWin") { url = c.appendingPathComponent(f) }
         }
         load()
     }
@@ -84,9 +89,9 @@ final class Pane: ObservableObject {
             return "Mac: " + p
         }
         let h = Paths.home.path
-        if p == h { return "Pasta pessoal" }
+        if p == h { return L("Home") }
         if p.hasPrefix(h + "/") {
-            return "Pasta pessoal › " + p.dropFirst(h.count + 1).replacingOccurrences(of: "/", with: " › ")
+            return L("Home") + " › " + p.dropFirst(h.count + 1).replacingOccurrences(of: "/", with: " › ")
         }
         return p.replacingOccurrences(of: "/", with: " › ")
     }
@@ -96,19 +101,34 @@ final class Pane: ObservableObject {
         return url.path != "/"
     }
 
+    /// Lê a pasta fora da thread principal: entrar numa pasta protegida (Downloads, Mesa…) faz o
+    /// macOS pedir permissão, e a leitura fica parada até a resposta — a janela não pode travar junto.
     func load() {
+        let target = url, windows = isWindows
+        let prefix = Paths.prefix.resolvingSymlinksInPath().path
+        let home = Paths.home.path, homeName = L("Home")
+        Task.detached(priority: .userInitiated) {
+            let items = Pane.read(target, windows: windows, prefix: prefix, home: home, homeName: homeName)
+            await MainActor.run { [weak self] in
+                guard let self, self.url == target else { return }   // o usuário já foi para outra pasta
+                self.items = items
+                self.selection = self.selection.filter { s in items.contains { $0.id == s } }
+            }
+        }
+    }
+
+    nonisolated static func read(_ url: URL, windows: Bool, prefix: String, home: String, homeName: String) -> [FileItem] {
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isSymbolicLinkKey]
         let urls = (try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: keys,
                                                  options: [.skipsHiddenFiles])) ?? []
-        let prefix = Paths.prefix.resolvingSymlinksInPath().path
-        items = urls.map { u in
+        return urls.map { u in
             let v = try? u.resourceValues(forKeys: Set(keys))
             let resolved = u.resolvingSymlinksInPath()
             let isDir = (try? resolved.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             var macTarget: String? = nil
-            if isWindows, v?.isSymbolicLink == true, !resolved.path.hasPrefix(prefix) {
-                macTarget = resolved.path.replacingOccurrences(of: Paths.home.path, with: "Pasta pessoal")
+            if windows, v?.isSymbolicLink == true, !resolved.path.hasPrefix(prefix) {
+                macTarget = resolved.path.replacingOccurrences(of: home, with: homeName)
                     .replacingOccurrences(of: "/", with: " › ")
             }
             return FileItem(id: u, name: u.lastPathComponent, isDir: isDir,
@@ -119,7 +139,6 @@ final class Pane: ObservableObject {
             if $0.isDir != $1.isDir { return $0.isDir }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
-        selection = selection.filter { s in items.contains { $0.id == s } }
     }
 
     func go(_ u: URL) { url = u; selection = []; load() }
@@ -145,8 +164,8 @@ enum Transfer {
     /// Copia (ou move) `urls` para dentro de `dest`. Nunca sobrescreve: cria "nome (2)".
     static func run(_ urls: [URL], to dest: URL, move: Bool, refresh: [Pane]) {
         guard !urls.isEmpty else { return }
-        let verb = move ? "Movendo" : "Copiando"
-        Model.shared.busy = "\(verb) \(urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) itens")…"
+        let what = urls.count == 1 ? urls[0].lastPathComponent : String(format: L("%ld items"), urls.count)
+        Model.shared.busy = String(format: move ? L("Moving %@…") : L("Copying %@…"), what)
         Task.detached {
             var errors: [String] = []
             let fm = FileManager.default
@@ -164,7 +183,7 @@ enum Transfer {
             await MainActor.run {
                 Model.shared.busy = nil
                 refresh.forEach { $0.load() }
-                if !failed.isEmpty { Model.shared.message = "Alguns itens falharam:\n" + failed.joined(separator: "\n") }
+                if !failed.isEmpty { Model.shared.message = L("Some items failed:") + "\n" + failed.joined(separator: "\n") }
             }
         }
     }
@@ -210,20 +229,20 @@ struct FileBrowserView: View {
     var transferBar: some View {
         VStack(spacing: 10) {
             Spacer()
-            transferButton("Copiar", icon: "arrow.right", help: "Copiar a seleção do Mac para o Windows",
+            transferButton(L("Copy"), icon: "arrow.right", help: L("Copy the selection from the Mac to Windows"),
                            disabled: mac.selection.isEmpty) {
                 Transfer.run(Array(mac.selection), to: win.url, move: false, refresh: [mac, win])
             }
-            transferButton("Mover", icon: "arrow.right.to.line", help: "Mover a seleção do Mac para o Windows",
+            transferButton(L("Move"), icon: "arrow.right.to.line", help: L("Move the selection from the Mac to Windows"),
                            disabled: mac.selection.isEmpty) {
                 Transfer.run(Array(mac.selection), to: win.url, move: true, refresh: [mac, win])
             }
             Divider().frame(width: 40).padding(.vertical, 6)
-            transferButton("Copiar", icon: "arrow.left", help: "Copiar a seleção do Windows para o Mac",
+            transferButton(L("Copy"), icon: "arrow.left", help: L("Copy the selection from Windows to the Mac"),
                            disabled: win.selection.isEmpty) {
                 Transfer.run(Array(win.selection), to: mac.url, move: false, refresh: [mac, win])
             }
-            transferButton("Mover", icon: "arrow.left.to.line", help: "Mover a seleção do Windows para o Mac",
+            transferButton(L("Move"), icon: "arrow.left.to.line", help: L("Move the selection from Windows to the Mac"),
                            disabled: win.selection.isEmpty) {
                 Transfer.run(Array(win.selection), to: mac.url, move: true, refresh: [mac, win])
             }
@@ -277,7 +296,7 @@ struct PaneView: View {
                     ForEach(pane.places) { p in
                         Button { pane.go(p.url) } label: { Label(p.name, systemImage: p.symbol) }
                     }
-                } label: { Label("Ir para", systemImage: "list.bullet") }
+                } label: { Label("Go To", systemImage: "list.bullet") }
                 .menuStyle(.borderlessButton).fixedSize()
             }
             .foregroundStyle(pane.color)
@@ -286,13 +305,13 @@ struct PaneView: View {
 
             HStack(spacing: 6) {
                 Button { pane.up() } label: { Image(systemName: "chevron.up") }
-                    .disabled(!pane.canGoUp).help("Pasta acima")
+                    .disabled(!pane.canGoUp).help("Enclosing Folder")
                 Text(pane.location)
                     .font(.system(.callout, design: pane.isWindows ? .monospaced : .default))
                     .lineLimit(1).truncationMode(.head)
                 Spacer()
                 Button { NSWorkspace.shared.open(pane.url) } label: { Image(systemName: "macwindow") }
-                    .help("Abrir esta pasta no Finder")
+                    .help("Open This Folder in the Finder")
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 12).padding(.bottom, 8)
@@ -309,20 +328,20 @@ struct PaneView: View {
         .listStyle(.inset)
         .contextMenu(forSelectionType: URL.self) { sel in
             if !sel.isEmpty {
-                Button(pane.isWindows ? "Copiar para o Mac (pasta da esquerda)" : "Copiar para o Windows (pasta da direita)") {
+                Button(pane.isWindows ? L("Copy to Mac (Left Folder)") : L("Copy to Windows (Right Folder)")) {
                     Transfer.run(Array(sel), to: other.url, move: false, refresh: [pane, other])
                 }
-                Button(pane.isWindows ? "Mover para o Mac" : "Mover para o Windows") {
+                Button(pane.isWindows ? L("Move to Mac") : L("Move to Windows")) {
                     Transfer.run(Array(sel), to: other.url, move: true, refresh: [pane, other])
                 }
                 Divider()
-                Button("Mostrar no Finder") { NSWorkspace.shared.activateFileViewerSelecting(Array(sel)) }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(Array(sel)) }
                 if sel.count == 1, let u = sel.first, u.pathExtension.lowercased() == "exe",
                    u.path.hasPrefix(Paths.driveC.path) {
-                    Button("Adicionar à biblioteca") { Model.shared.addExisting(u) }
+                    Button("Add to Library") { Model.shared.addExisting(u) }
                 }
                 Divider()
-                Button("Mover para o Lixo", role: .destructive) { Transfer.trash(Array(sel), refresh: pane) }
+                Button("Move to Trash", role: .destructive) { Transfer.trash(Array(sel), refresh: pane) }
             }
         } primaryAction: { sel in
             if sel.count == 1, let u = sel.first, let item = pane.items.first(where: { $0.id == u }) {
@@ -354,7 +373,7 @@ struct PaneView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.name).lineLimit(1)
                 if let t = item.macTarget {
-                    Text("↪ é uma pasta do Mac: \(t)").font(.caption2).foregroundStyle(.blue).lineLimit(1)
+                    Text(String(format: L("↪ a Mac folder: %@"), t)).font(.caption2).foregroundStyle(.blue).lineLimit(1)
                 }
             }
             Spacer()
@@ -372,8 +391,9 @@ struct PaneView: View {
     var footer: some View {
         HStack {
             Text(pane.selection.isEmpty
-                 ? "\(pane.items.count) itens · duplo clique para abrir · arraste para o outro lado"
-                 : "\(pane.selection.count) selecionado(s)")
+                 ? String(format: L(pane.items.count == 1 ? "%ld item · double-click to open · drag to the other side"
+                                                         : "%ld items · double-click to open · drag to the other side"), pane.items.count)
+                 : String(format: L("%ld selected"), pane.selection.count))
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
         }

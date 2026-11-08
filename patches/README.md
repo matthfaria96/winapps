@@ -22,4 +22,4 @@ Por programa:
 - `programas/rubinot/patches/` — `0002` ole32, `0019` minimizar esconde o app
 - `programas/power-bi/patches/` — `0008` ntdll, `0009` secur32, `0016` mshtml
 
-Detalhes de cada um: [`winapps/README.md`](../winapps/README.md#correções-no-motor).
+Detalhes de cada um: [`winapps/README.md`](../winapps/README.md#engine-patches).

@@ -1,30 +1,65 @@
 #!/usr/bin/env python3
-"""Diz se um arquivo do Windows é um INSTALADOR ou um programa PORTÁTIL.
+"""Tells whether a Windows file is an INSTALLER or a PORTABLE program.
 
-Uso: python3 -I exe-kind.py arquivo.exe
-Imprime uma linha:  installer<TAB>motivo   ou   portable<TAB>motivo
+Usage: python3 -I exe-kind.py file.exe
+Prints one line:  installer<TAB>reason   or   portable<TAB>reason
+(also --name, --compat, --needs, --clr, --mac-menu, --burn-msis, --gui-only)
+
+Human-readable text follows WINAPPS_UI_LANG ("en"/"pt"); without it, the Mac's
+first preferred language (pt* -> Portuguese, anything else -> English).
 """
 import os
 import re
 import sys
 
+
+def ui_lang():
+    """Idioma das mensagens: "pt" ou "en" (padrão)."""
+    v = os.environ.get("WINAPPS_UI_LANG", "")
+    if not v:
+        try:
+            import subprocess
+            out = subprocess.run(["/usr/bin/defaults", "read", "-g", "AppleLanguages"],
+                                 capture_output=True, text=True, timeout=5).stdout
+            v = next((ln.strip(' ",') for ln in out.splitlines()[1:] if ln.strip(' ",()')), "")
+        except Exception:  # noqa: BLE001
+            v = ""
+    return "pt" if v.lower().startswith("pt") else "en"
+
+
+LANG = ui_lang()
+
+
+def tr(en, pt):
+    return pt if LANG == "pt" else en
+
+
+def loc(rule, key, default=""):
+    """Campo de uma regra do compat.json no idioma da interface: rule["pt"][key] em
+    português (se existir), senão o campo principal (inglês)."""
+    if LANG == "pt":
+        pt = rule.get("pt") or {}
+        if key in pt:
+            return pt[key]
+    return rule.get(key, default)
+
 HEAD = 8 * 1024 * 1024  # as assinaturas ficam no começo do arquivo
 
 # (padrão em bytes, nome amigável) — ordem importa: o primeiro que bater ganha
 SIGNATURES = [
-    (b"Nullsoft Install System", "instalador NSIS"),
-    (b"NullsoftInst", "instalador NSIS"),
-    (b"InnoSetupLdrWindow", "instalador Inno Setup"),
-    (b"Inno Setup Setup Data", "instalador Inno Setup"),
-    (b"JR.Inno.Setup", "instalador Inno Setup"),
-    (b".wixburn", "instalador WiX/Burn"),
-    (b"InstallShield", "instalador InstallShield"),
-    (b"Advanced Installer", "instalador Advanced Installer"),
-    (b"SquirrelSetup", "instalador Squirrel"),
-    (b"Setup Factory", "instalador Setup Factory"),
-    (b"Wise Installation", "instalador Wise"),
-    (b"7zS.sfx", "instalador 7-Zip SFX"),
-    (b";!@Install@!UTF-8!", "instalador 7-Zip SFX"),
+    (b"Nullsoft Install System", "NSIS"),
+    (b"NullsoftInst", "NSIS"),
+    (b"InnoSetupLdrWindow", "Inno Setup"),
+    (b"Inno Setup Setup Data", "Inno Setup"),
+    (b"JR.Inno.Setup", "Inno Setup"),
+    (b".wixburn", "WiX/Burn"),
+    (b"InstallShield", "InstallShield"),
+    (b"Advanced Installer", "Advanced Installer"),
+    (b"SquirrelSetup", "Squirrel"),
+    (b"Setup Factory", "Setup Factory"),
+    (b"Wise Installation", "Wise"),
+    (b"7zS.sfx", "7-Zip SFX"),
+    (b";!@Install@!UTF-8!", "7-Zip SFX"),
 ]
 
 NAME_HINT = re.compile(r"(setup|install|instal|installer|instalador)", re.I)
@@ -69,8 +104,8 @@ def version_string(data, key):
     return ""
 
 
-def compat(path, rules_path):
-    """Primeira regra de compatibilidade que bate com o arquivo, ou None."""
+def find_rule(path, rules_path):
+    """Primeira regra do compat.json que bate com o arquivo (o dicionário cru), ou None."""
     import json, mmap, re
     with open(rules_path, encoding="utf-8") as f:
         rules = json.load(f)["rules"]
@@ -95,12 +130,24 @@ def compat(path, rules_path):
                 if re.search(m["content"].encode(), body[:limit] if limit < len(body) else body):
                     hit = True
             if hit:
-                r = {k: rule.get(k, "") for k in ("name", "status", "why", "alt", "tested", "category", "kind")}
-                r["needs"] = " ".join(rule.get("needs", []))
-                r["verified"] = "1" if rule.get("verified") else ""
-                r["fixes"] = "; ".join(rule.get("fixes", []))
-                return r
+                return rule
     return None
+
+
+def compat(path, rules_path):
+    """Aviso de compatibilidade (textos no idioma da interface) da primeira regra que
+    bate com o arquivo, ou None. "rule" = nome principal (inglês) da regra: chave estável
+    para casar com o compat.json, igual em qualquer idioma."""
+    rule = find_rule(path, rules_path)
+    if rule is None:
+        return None
+    r = {k: loc(rule, k) for k in ("name", "status", "why", "alt", "tested", "category", "kind", "summary")}
+    r["status"], r["tested"], r["kind"] = rule.get("status", ""), rule.get("tested", ""), rule.get("kind", "")
+    r["rule"] = rule.get("name", "")
+    r["needs"] = " ".join(rule.get("needs", []))
+    r["verified"] = "1" if rule.get("verified") else ""
+    r["fixes"] = "; ".join(loc(rule, "fixes", []))
+    return r
 
 
 GENERIC_EXE = {"app", "main", "launcher", "game", "start", "client", "program", "run"}
@@ -110,13 +157,10 @@ def app_name(path, rules_path):
     """Nome amigável para o atalho: 'app_name' da regra do compat.json, senão o
     ProductName do .exe (sem ®/™ e sem o nome da empresa na frente), senão o nome
     do arquivo (ou da pasta, se o .exe tiver nome genérico)."""
-    import json
     if os.path.isfile(rules_path):
-        with open(rules_path, encoding="utf-8") as f:
-            rules = {r.get("name"): r for r in json.load(f)["rules"]}
-        hit = compat(path, rules_path)
-        if hit and rules.get(hit["name"], {}).get("app_name"):
-            return rules[hit["name"]]["app_name"]
+        rule = find_rule(path, rules_path)
+        if rule and loc(rule, "app_name"):
+            return loc(rule, "app_name")
     base = os.path.splitext(os.path.basename(path))[0]
     # nome do arquivo sem versão/arquitetura: "SumatraPDF-3.6.1-64" → "SumatraPDF"
     clean = re.sub(r"([-_ .]?(v?\d+([._]\d+)+|x64|x86|amd64|win64|win32|64bit|32bit|64|32|portable|setup))+$",
@@ -170,27 +214,28 @@ def burn_msis(manifest_path):
 def classify(path):
     name = os.path.basename(path)
     if name.lower().endswith(".msi"):
-        return "installer", "pacote MSI"
+        return "installer", tr("MSI package", "pacote MSI")
     with open(path, "rb") as f:
         data = f.read(HEAD)
     if data[:2] != b"MZ":
-        return "portable", "não é um executável Windows padrão"
+        return "portable", tr("not a standard Windows executable", "não é um executável Windows padrão")
 
     for sig, label in SIGNATURES:
         if sig in data:
-            return "installer", label
+            return "installer", tr(f"{label} installer", f"instalador {label}")
 
     desc = file_description(data)
     if desc and NAME_HINT.search(desc):
-        return "installer", f"descrição do arquivo: \"{desc}\""
+        return "installer", tr(f"file description: \"{desc}\"", f"descrição do arquivo: \"{desc}\"")
 
     if NAME_HINT.search(name):
-        return "installer", "o nome do arquivo indica instalador"
+        return "installer", tr("the file name says it's an installer", "o nome do arquivo indica instalador")
 
     if b'level="requireAdministrator"' in data or b"level='requireAdministrator'" in data:
-        return "installer", "pede permissão de administrador (típico de instalador)"
+        return "installer", tr("asks for administrator rights (typical of installers)",
+                               "pede permissão de administrador (típico de instalador)")
 
-    return "portable", "nenhum sinal de instalador encontrado"
+    return "portable", tr("no sign of an installer", "nenhum sinal de instalador encontrado")
 
 
 def is_console(path):
@@ -274,20 +319,17 @@ def main():
         return 0
     if len(sys.argv) == 3 and sys.argv[1] == "--mac-menu":
         # receita de menus do Mac ("Menu:Item=ctrl+s;-;…||…") para o motor (MacMenu)
-        import json
         rules = os.path.join(os.path.dirname(os.path.abspath(__file__)), "compat.json")
-        hit = compat(sys.argv[2], rules) if os.path.isfile(rules) else None
-        if hit:
-            with open(rules, encoding="utf-8") as f:
-                rule = {r.get("name"): r for r in json.load(f)["rules"]}.get(hit["name"], {})
+        rule = find_rule(sys.argv[2], rules) if os.path.isfile(rules) else None
+        if rule:
             menus = []
-            for m in rule.get("mac_menu", []):
+            for m in loc(rule, "mac_menu", []):
                 items = ["-" if it == "-" else f"{it[0]}={it[1]}" for it in m.get("items", [])]
                 menus.append(m["title"] + ":" + ";".join(items))
             print("||".join(menus))
             if rule.get("titlebar_height"):
                 print(f"TitleBarHeight={rule['titlebar_height']}")
-            tb = rule.get("titlebar_buttons")
+            tb = loc(rule, "titlebar_buttons", None)
             if tb:
                 side = lambda items: ";".join(f"{b[0]}={b[1]}@{b[2]}" if len(b) > 2 else f"{b[0]}={b[1]}" for b in items)
                 print("TitleBarButtons=" + side(tb.get("left", [])) + "||" + side(tb.get("right", [])))
@@ -323,5 +365,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as e:  # noqa: BLE001
-        print(f"portable\tnão consegui analisar ({e})")
+        print("portable\t" + tr(f"couldn't analyze it ({e})", f"não consegui analisar ({e})"))
         sys.exit(0)

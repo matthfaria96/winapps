@@ -28,9 +28,25 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ---------------------------------------------------------------- utilidades
 
+# Idioma das mensagens: inglês (padrão) ou português. O WinApps.app passa WINAPPS_UI_LANG
+# ("en"/"pt"); sem ela (Terminal, atalhos), segue o 1º idioma preferido do macOS.
+ui_lang_detect() {
+    case "${WINAPPS_UI_LANG:-}" in
+        pt*) echo pt; return ;;
+        en*) echo en; return ;;
+    esac
+    case "$(defaults read -g AppleLanguages 2>/dev/null | sed -n '2p' | tr -d ' ",')" in
+        pt*) echo pt ;;
+        *)   echo en ;;
+    esac
+}
+UI_LANG="$(ui_lang_detect)"
+export WINAPPS_UI_LANG="$UI_LANG"   # exe-kind.py e comandos filhos usam o mesmo idioma
+t() { if [ "$UI_LANG" = pt ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }   # t 'English' 'Português'
+
 say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
-die()  { printf '\033[1;31mErro:\033[0m %s\n' "$*" >&2; exit 1; }
+die()  { printf '\033[1;31m%s\033[0m %s\n' "$(t 'Error:' 'Erro:')" "$*" >&2; exit 1; }
 
 find_wine_bin() {
     local b
@@ -51,7 +67,7 @@ migrate_engine_dir() {
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$old" 2>/dev/null
         mv "$old" "$WINE_DIR/engine" || return 1
         rmdir "$OLD_WINE_DIR" 2>/dev/null
-        say "Motor reorganizado; refazendo os atalhos…"
+        say "$(t 'Engine reorganized; rebuilding shortcuts…' 'Motor reorganizado; refazendo os atalhos…')"
         cmd_rebuild >/dev/null 2>&1 || true
         return 0
     done
@@ -68,7 +84,7 @@ brand_engine() {
 }
 
 require_wine() {
-    WINE_BIN="$(find_wine_bin)" || die "o motor não está instalado. Rode: winapps setup"
+    WINE_BIN="$(find_wine_bin)" || die "$(t 'the engine is not installed. Run: winapps setup' 'o motor não está instalado. Rode: winapps setup')"
     WINE="$WINE_BIN/wine"
     WINESERVER="$WINE_BIN/wineserver"
     [ -x "$WINE_BIN/../lib/wine/x86_64-unix/WinApps" ] && WINE="$WINE_BIN/../lib/wine/x86_64-unix/WinApps"
@@ -78,48 +94,60 @@ require_wine() {
     # Mono (.NET) e Gecko já vêm embutidos no motor; só evita que o motor crie
     # atalhos/associações próprios no Mac (o WinApps cuida disso)
     export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-winemenubuilder.exe=d}"
-    # usa o idioma do macOS (apps abertos pelo Finder vêm com LANG vazio/C → inglês)
-    case "${LANG:-C}" in C|C.*|POSIX|"") export LANG="$(mac_locale)" ;; esac
+    # idioma do ambiente Windows: o do próprio ambiente (ambientes existentes não mudam);
+    # ambiente novo segue o idioma do Mac (inglês ou português do Brasil)
+    export LANG="$(prefix_locale)"
     unset LC_ALL
     # ferramentas do WinApps (ntlm_auth p/ login Windows local, cabextract…) visíveis ao motor
     case ":$PATH:" in *":$BASE/bin:"*) ;; *) export PATH="$BASE/bin:$PATH" ;; esac
     mkdir -p "$LOG_DIR"
 }
 
-mac_locale() {  # "pt-BR" (preferência do macOS) → "pt_BR.UTF-8"
-    local l
-    l="$(defaults read -g AppleLanguages 2>/dev/null | sed -n '2p' | tr -d ' ",')"
-    l="${l%%-[A-Z][a-z][a-z][a-z]*}"   # tira script (ex.: zh-Hans)
-    case "$l" in
-        *-*) echo "$(echo "${l%%-*}" | tr 'A-Z' 'a-z')_$(echo "${l#*-}" | tr 'a-z' 'A-Z').UTF-8" ;;
-        pt)  echo "pt_BR.UTF-8" ;;
-        "")  echo "en_US.UTF-8" ;;
-        *)   echo "${l}_$(echo "$l" | tr 'a-z' 'A-Z').UTF-8" ;;
-    esac
+ui_locale() {  # idioma de um ambiente Windows novo: o da interface
+    [ "$UI_LANG" = pt ] && echo "pt_BR.UTF-8" || echo "en_US.UTF-8"
+}
+
+# Idioma do ambiente Windows $PREFIX (ex.: "pt_BR.UTF-8"). Ambientes novos guardam a escolha em
+# .winapps-locale; os antigos (sem o arquivo) usam o que está no registro ("LocaleName"="pt-BR"),
+# assim nunca mudam de idioma. Ambiente ainda não criado: o idioma da interface.
+prefix_locale() {
+    local l=""
+    if [ -s "$PREFIX/.winapps-locale" ]; then
+        l="$(head -1 "$PREFIX/.winapps-locale" | tr -d ' \r\n')"
+    elif [ -f "$PREFIX/user.reg" ]; then
+        l="$(LC_ALL=C sed -n 's/^"LocaleName"="\([a-zA-Z]*-[a-zA-Z]*\)".*/\1/p' "$PREFIX/user.reg" | head -1)"
+        [ -n "$l" ] && l="$(echo "${l%%-*}" | tr 'A-Z' 'a-z')_$(echo "${l#*-}" | tr 'a-z' 'A-Z').UTF-8"
+    fi
+    [ -n "$l" ] && echo "$l" || ui_locale
 }
 
 # Deixa o seletor de arquivos dos programas claro para quem usa Mac:
-#  - C: = "Windows (programas)"   (onde os programas ficam instalados)
-#  - M: = "Mac" com as pastas do Mac em português
+#  - C: = "Windows (programs)"   (onde os programas ficam instalados)
+#  - M: = "Mac" com as pastas do Mac no idioma do ambiente
 #  - esconde a raiz "/" e o Z: (o disco inteiro, cru) — continuam funcionando por baixo
 configure_prefix() {
     require_wine
-    local mac="$BASE/mac" dd="$PREFIX/dosdevices"
+    local mac dd="$PREFIX/dosdevices" pt=0
+    case "$LANG" in pt*) pt=1 ;; esac
+    # uma pasta por idioma ($BASE/mac = português, a de sempre): os caminhos que os programas
+    # de um ambiente já guardaram (M:\Documentos…) continuam valendo
+    [ "$pt" = 1 ] && mac="$BASE/mac" || mac="$BASE/mac-en"
+    L() { [ "$pt" = 1 ] && printf '%s' "$2" || printf '%s' "$1"; }
 
     # pastas do Mac com os nomes que o Finder mostra
     rm -rf "$mac"; mkdir -p "$mac"
-    ln -s "$HOME"             "$mac/Pasta pessoal ($USER)"
-    ln -s "$HOME/Desktop"     "$mac/Mesa"
-    ln -s "$HOME/Documents"   "$mac/Documentos"
+    ln -s "$HOME"             "$mac/$(L "Home ($USER)" "Pasta pessoal ($USER)")"
+    ln -s "$HOME/Desktop"     "$mac/$(L Desktop Mesa)"
+    ln -s "$HOME/Documents"   "$mac/$(L Documents Documentos)"
     ln -s "$HOME/Downloads"   "$mac/Downloads"
-    ln -s "$HOME/Pictures"    "$mac/Imagens"
-    ln -s "$HOME/Music"       "$mac/Música"
-    ln -s "$HOME/Movies"      "$mac/Filmes"
+    ln -s "$HOME/Pictures"    "$mac/$(L Pictures Imagens)"
+    ln -s "$HOME/Music"       "$mac/$(L Music Música)"
+    ln -s "$HOME/Movies"      "$mac/$(L Movies Filmes)"
     [ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ] && \
         ln -s "$HOME/Library/Mobile Documents/com~apple~CloudDocs" "$mac/iCloud Drive"
-    ln -s /Volumes            "$mac/Discos externos"
+    ln -s /Volumes            "$mac/$(L 'External Drives' 'Discos externos')"
     printf 'Mac' >"$mac/.windows-label"
-    printf 'Windows (programas)' >"$PREFIX/drive_c/.windows-label"
+    L 'Windows (programs)' 'Windows (programas)' >"$PREFIX/drive_c/.windows-label"
     ln -sfn "$mac" "$dd/m:"
 
     "$WINESERVER" -k 2>/dev/null; "$WINESERVER" -w 2>/dev/null
@@ -196,7 +224,7 @@ filter_candidates() {
 detect_kind() {  # imprime "installer<TAB>motivo" ou "portable<TAB>motivo"
     local py="$BASE/bin/exe-kind.py"
     [ -f "$py" ] || py="$SELF_DIR/exe-kind.py"
-    /usr/bin/python3 -I "$py" "$1" 2>/dev/null || printf 'portable\tnão consegui analisar\n'
+    /usr/bin/python3 -I "$py" "$1" 2>/dev/null || printf 'portable\t%s\n' "$(t "couldn't analyze it" 'não consegui analisar')"
 }
 
 # Pastas "de uso geral" do Mac: um .exe solto nelas é copiado sozinho (nunca a pasta inteira)
@@ -246,15 +274,15 @@ main_exe_in() {  # main_exe_in <pasta>
 #   PATH<TAB><exe>       importado para C:\Portable (a pasta inteira, quando for o caso)
 #   INSTALLER<TAB><arq>  dentro havia um instalador: deve ser instalado, não importado
 cmd_import() {
-    [ $# -ge 1 ] || die "uso: winapps import <programa.exe|pasta|arquivo.zip>"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps import <program.exe|folder|file.zip>' 'uso: winapps import <programa.exe|pasta|arquivo.zip>')"
     require_wine
     local src="$1" dir tmp="" inst e name dest kind
-    [ -e "$src" ] || die "não encontrado: $src"
+    [ -e "$src" ] || die "$(t 'not found' 'não encontrado'): $src"
     case "$(echo "$src" | tr 'A-Z' 'a-z')" in
         *.exe) printf 'PATH\t%s\n' "$(adopt_portable "$src")"; return 0 ;;
         *.zip)
             tmp="$(mktemp -d "${TMPDIR:-/tmp}/winapps-import.XXXXXX")"
-            ditto -x -k "$src" "$tmp" || die "não consegui abrir o .zip"
+            ditto -x -k "$src" "$tmp" || die "$(t "couldn't open the .zip file" 'não consegui abrir o .zip')"
             rm -rf "$tmp/__MACOSX"
             dir="$tmp"
             # zip com uma pasta só dentro: a pasta é o programa
@@ -262,7 +290,7 @@ cmd_import() {
                 dir="$(find "$tmp" -mindepth 1 -maxdepth 1)"
             fi
             name="$(basename "$src" .zip)"; name="${name%.ZIP}" ;;
-        *)  [ -d "$src" ] || die "use um .exe, um .zip ou uma pasta"
+        *)  [ -d "$src" ] || die "$(t 'use a .exe, a .zip or a folder' 'use um .exe, um .zip ou uma pasta')"
             dir="$(cd "$src" && pwd)"; name="$(basename "$dir")" ;;
     esac
     # instalador dentro (um .msi, ou um único .exe que é instalador): instalar
@@ -276,7 +304,7 @@ cmd_import() {
         # o instalador fica numa pasta temporária que o WinApps apaga depois
         printf 'INSTALLER\t%s\n' "$inst"; return 0
     fi
-    e="$(main_exe_in "$dir")" || { [ -n "$tmp" ] && rm -rf "$tmp"; die "nenhum programa (.exe com janela) encontrado"; }
+    e="$(main_exe_in "$dir")" || { [ -n "$tmp" ] && rm -rf "$tmp"; die "$(t 'no program (a .exe with a window) found' 'nenhum programa (.exe com janela) encontrado')"; }
     name="$(printf '%s' "$(app_name_for "$e")" | tr '/:' '--')"
     dest="$PREFIX/drive_c/Portable/$name"
     mkdir -p "$dest"
@@ -315,7 +343,7 @@ install_engine_patches() {
             cmp -s "$f" "$dst" && continue
             [ -f "$dst.orig" ] || cp "$dst" "$dst.orig"
             cp "$f" "$dst.new" && mv -f "$dst.new" "$dst"
-            say "Motor corrigido: $(basename "$f")"
+            say "$(t 'Engine updated' 'Motor corrigido'): $(basename "$f")"
         done
         return 0
     done
@@ -367,14 +395,16 @@ cmd_gamepad() {  # winapps gamepad on|off|status
         status) [ -f "$BASE/.gamepad-sdl" ] && echo on || echo off; return 0 ;;
         on)  touch "$BASE/.gamepad-sdl" ;;
         off) rm -f "$BASE/.gamepad-sdl" ;;
-        *) die "use on, off ou status" ;;
+        *) die "$(t 'use on, off or status' 'use on, off ou status')" ;;
     esac
     for p in "$BASE"/prefixes/* "$BASE"/prefixes/.template; do
         [ -f "$p/system.reg" ] || continue
         WINEPREFIX="$p" gamepad_apply
     done
-    [ "$1" = on ] && say "Controles de jogo via SDL ligados (melhor para jogos; usa um pouco de CPU). Reabra os programas." \
-                  || say "Controles de jogo no modo leve (IOHID). Reabra os programas."
+    [ "$1" = on ] && say "$(t 'Game controllers via SDL are on (best for games; uses a little CPU). Reopen your programs.' \
+                              'Controles de jogo via SDL ligados (melhor para jogos; usa um pouco de CPU). Reabra os programas.')" \
+                  || say "$(t 'Game controllers in light mode (IOHID). Reopen your programs.' \
+                              'Controles de jogo no modo leve (IOHID). Reabra os programas.')"
 }
 
 cmd_dxmt() {  # winapps dxmt on|off|status
@@ -384,9 +414,10 @@ cmd_dxmt() {  # winapps dxmt on|off|status
     case "${1:-status}" in
         status) [ -f "$list" ] && echo on || echo off ;;
         on)
-            src="$(dxmt_dir)" || die "DXMT não encontrado (rode vendor.sh)"
+            src="$(dxmt_dir)" || die "$(t 'DXMT not found (run vendor.sh)' 'DXMT não encontrado (rode vendor.sh)')"
             nm -gU "$lib/x86_64-unix/winemac.so" 2>/dev/null | grep -q _macdrv_functions \
-                || die "o motor não tem o suporte ao DXMT (patch 0005); rode: winapps engine-patch"
+                || die "$(t "the engine doesn't support DXMT yet (patch 0005); run: winapps engine-patch" \
+                            'o motor não tem o suporte ao DXMT (patch 0005); rode: winapps engine-patch')"
             : >"$list.new"
             for arch in x86_64-windows i386-windows x86_64-unix; do
                 for f in "$src/$arch"/*; do
@@ -399,7 +430,7 @@ cmd_dxmt() {  # winapps dxmt on|off|status
             done
             mv -f "$list.new" "$list"; rm -f "$BASE/.dxmt-off"
             dxmt_sync_prefixes on
-            say "DXMT ligado: jogos e programas Direct3D 10/11 usam o Metal." ;;
+            say "$(t 'DXMT on: Direct3D 10/11 games and programs now use Metal.' 'DXMT ligado: jogos e programas Direct3D 10/11 usam o Metal.')" ;;
         off)
             # sem a lista (instalação manual/antiga), usa os arquivos do pacote do DXMT
             if [ ! -f "$list" ] && src="$(dxmt_dir)"; then
@@ -414,8 +445,8 @@ cmd_dxmt() {  # winapps dxmt on|off|status
             fi
             touch "$BASE/.dxmt-off"
             dxmt_sync_prefixes off
-            say "DXMT desligado: volta o Direct3D padrão do motor." ;;
-        *) die "use on, off ou status" ;;
+            say "$(t "DXMT off: back to the engine's standard Direct3D." 'DXMT desligado: volta o Direct3D padrão do motor.')" ;;
+        *) die "$(t 'use on, off or status' 'use on, off ou status')" ;;
     esac
 }
 
@@ -423,23 +454,23 @@ cmd_setup() {
     mkdir -p "$BASE" "$APPS_DIR" "$LOG_DIR"
     migrate_engine_dir
     if find_wine_bin >/dev/null; then
-        say "Motor já instalado em $WINE_DIR"
+        say "$(t 'Engine already installed in' 'Motor já instalado em') $WINE_DIR"
     else
         /usr/bin/pgrep -q oahd || {
-            say "Instalando o Rosetta 2 (necessário para o motor)…"
-            /usr/sbin/softwareupdate --install-rosetta --agree-to-license || die "falha ao instalar o Rosetta"
+            say "$(t 'Installing Rosetta 2 (the engine needs it)…' 'Instalando o Rosetta 2 (necessário para o motor)…')"
+            /usr/sbin/softwareupdate --install-rosetta --agree-to-license || die "$(t "couldn't install Rosetta" 'falha ao instalar o Rosetta')"
         }
-        say "Baixando o motor ${WINE_VERSION} (~225 MB)…"
+        say "$(t 'Downloading the engine' 'Baixando o motor') ${WINE_VERSION} (~225 MB)…"
         local tmp; tmp="$(mktemp -d)"
-        curl -fL --progress-bar -o "$tmp/wine.tar.xz" "$WINE_URL" || die "falha no download: $WINE_URL"
-        say "Extraindo…"
+        curl -fL --progress-bar -o "$tmp/wine.tar.xz" "$WINE_URL" || die "$(t 'download failed' 'falha no download'): $WINE_URL"
+        say "$(t 'Extracting…' 'Extraindo…')"
         mkdir -p "$WINE_DIR"
-        mkdir -p "$tmp/x" && tar -xJf "$tmp/wine.tar.xz" -C "$tmp/x" || die "falha ao extrair"
-        mv "$tmp"/x/*.app "$WINE_DIR/engine" || die "falha ao instalar o motor"
+        mkdir -p "$tmp/x" && tar -xJf "$tmp/wine.tar.xz" -C "$tmp/x" || die "$(t "couldn't extract it" 'falha ao extrair')"
+        mv "$tmp"/x/*.app "$WINE_DIR/engine" || die "$(t "couldn't install the engine" 'falha ao instalar o motor')"
         rm -rf "$tmp"
         # builds do Gcenx não são assinados pela Apple: tira a quarentena
         xattr -dr com.apple.quarantine "$WINE_DIR" 2>/dev/null || true
-        find_wine_bin >/dev/null || die "motor extraído, mas o binário não foi encontrado"
+        find_wine_bin >/dev/null || die "$(t 'engine extracted, but its binary is missing' 'motor extraído, mas o binário não foi encontrado')"
     fi
 
     # instala o próprio script num lugar fixo (os atalhos .app dependem dele)
@@ -459,19 +490,20 @@ cmd_setup() {
     fi
     if [ -d /opt/homebrew/bin ] && [ -w /opt/homebrew/bin ]; then
         ln -sf "$BASE/bin/winapps" /opt/homebrew/bin/winapps
-        say "Comando 'winapps' disponível no terminal."
+        say "$(t "The 'winapps' command is now available in Terminal." "Comando 'winapps' disponível no terminal.")"
     fi
 
     require_wine
     local fresh=0
     if [ ! -f "$PREFIX/system.reg" ] && [ -f "$TEMPLATE/system.reg" ] && [ "$PREFIX" != "$TEMPLATE" ]; then
-        say "Criando o ambiente Windows a partir do modelo (instantâneo)…"
+        say "$(t 'Creating the Windows environment from the template (instant)…' 'Criando o ambiente Windows a partir do modelo (instantâneo)…')"
         clone_template "$PREFIX"
     fi
     if [ ! -f "$PREFIX/system.reg" ]; then
         fresh=1
-        say "Criando o ambiente Windows em ${PREFIX}…"
+        say "$(t 'Creating the Windows environment in' 'Criando o ambiente Windows em') ${PREFIX}…"
         mkdir -p "$PREFIX"
+        printf '%s\n' "$LANG" >"$PREFIX/.winapps-locale"   # idioma escolhido na criação (fica fixo)
         "$WINE" wineboot -u >"$LOG_DIR/setup.log" 2>&1
         "$WINESERVER" -w
     fi
@@ -480,19 +512,20 @@ cmd_setup() {
     # DXMT ligado por padrão (a menos que o usuário tenha desligado); reaplicar é
     # inofensivo e traz as DLLs novas quando o WinApps é atualizado
     [ -f "$BASE/.dxmt-off" ] || cmd_dxmt on >/dev/null || true
-    say "Ajustando pastas e idioma ($LANG)…"
+    say "$(t 'Setting up folders and language' 'Ajustando pastas e idioma') ($LANG)…"
     configure_prefix
     if [ "${WINAPPS_NO_ESSENTIALS:-0}" != 1 ]; then
-        say "Instalando os componentes do Windows (fontes, Visual C++, DirectX, .NET 4.8, WebView2; ~15 min na 1ª vez)…"
-        cmd_components || warn "Alguns componentes falharam; tente de novo com: winapps components"
+        say "$(t 'Installing Windows components (fonts, Visual C++, DirectX, .NET 4.8, WebView2; ~15 min the first time)…' \
+                 'Instalando os componentes do Windows (fontes, Visual C++, DirectX, .NET 4.8, WebView2; ~15 min na 1ª vez)…')"
+        cmd_components || warn "$(t 'Some components failed; try again with: winapps components' 'Alguns componentes falharam; tente de novo com: winapps components')"
     fi
     # guarda uma cópia limpa como modelo (só de um ambiente recém-criado, sem programas)
     if [ "$fresh" = 1 ] && [ ! -d "$TEMPLATE" ] && [ "$PREFIX" != "$TEMPLATE" ]; then
         "$WINESERVER" -w 2>/dev/null
         cp -cR "$PREFIX" "$TEMPLATE" 2>/dev/null || cp -R "$PREFIX" "$TEMPLATE"
-        say "Modelo salvo: próximos ambientes serão criados na hora."
+        say "$(t 'Template saved: new environments will be ready instantly.' 'Modelo salvo: próximos ambientes serão criados na hora.')"
     fi
-    say "Pronto! Motor $("$WINE" --version 2>/dev/null | sed -E 's/^wine-//; s/ .*//')"
+    say "$(t 'Done! Engine' 'Pronto! Motor') $("$WINE" --version 2>/dev/null | sed -E 's/^wine-//; s/ .*//')"
 }
 
 proc_age() {  # segundos de vida de um processo (o ps do macOS só tem [[dd-]hh:]mm:ss)
@@ -519,7 +552,7 @@ find_winetricks() {
 ensure_idle() {
     local sys='\\(services|winedevice|explorer|plugplay|svchost|rpcss|conhost|start|wineboot|tabtip|mscorsvw|lsass)\.exe'
     if ps -axo command | grep -iE '^([a-z]:\\|/Users/.*/drive_c/)' | grep -viE "$sys" | grep -q .; then
-        die "feche os programas Windows abertos antes (ou rode: winapps kill)"
+        die "$(t 'quit the open Windows programs first (or run: winapps kill)' 'feche os programas Windows abertos antes (ou rode: winapps kill)')"
     fi
     "$WINESERVER" -k 2>/dev/null; "$WINESERVER" -w 2>/dev/null
     return 0
@@ -542,7 +575,7 @@ download_cached() {  # download_cached <url> <arquivo> [sha256]  → caminho em 
         mv -f "$f.part" "$f"
     fi
     if [ -n "${3:-}" ] && [ "$(shasum -a 256 "$f" | awk '{print $1}')" != "$3" ]; then
-        rm -f "$f"; warn "download corrompido: $2"; return 1
+        rm -f "$f"; warn "$(t 'corrupted download' 'download corrompido'): $2"; return 1
     fi
     echo "$f"
 }
@@ -550,7 +583,7 @@ download_cached() {  # download_cached <url> <arquivo> [sha256]  → caminho em 
 install_own_component() {  # install_own_component <nome>
     case "$1" in
     winrt-metadata)
-        say "    licença do Windows SDK (Microsoft): https://aka.ms/WinSDKLicenseURL"
+        say "    $(t 'Windows SDK license (Microsoft)' 'licença do Windows SDK (Microsoft)'): https://aka.ms/WinSDKLicenseURL"
         local pkg wm="$PREFIX/drive_c/windows/system32/WinMetadata" bak="$PREFIX/drive_c/windows/WinMetadata.wine-bak"
         pkg="$(download_cached "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.contracts/$SDKC_VER/microsoft.windows.sdk.contracts.$SDKC_VER.nupkg" \
                "microsoft.windows.sdk.contracts.$SDKC_VER.nupkg" "$SDKC_SHA256")" || return 1
@@ -595,13 +628,13 @@ install_own_component() {  # install_own_component <nome>
 cmd_components() {  # winapps components [componente...]   (sem nada: os essenciais)
     require_wine
     local wt verbs="${*:-$ESSENTIALS}" pending="" v done_file="$PREFIX/.winapps-components"
-    wt="$(find_winetricks)" || die "não consegui obter o winetricks"
+    wt="$(find_winetricks)" || die "$(t "couldn't get winetricks" 'não consegui obter o winetricks')"
     export PATH="$BASE/bin:$PATH"   # cabextract embutido no WinApps
-    command -v cabextract >/dev/null 2>&1 || die "falta o cabextract (instale com: brew install cabextract)"
+    command -v cabextract >/dev/null 2>&1 || die "$(t 'cabextract is missing (install it with: brew install cabextract)' 'falta o cabextract (instale com: brew install cabextract)')"
     for v in $verbs; do grep -qx "$v" "$done_file" 2>/dev/null || pending="$pending $v"; done
-    if [ -z "$pending" ]; then say "Já instalados:$(printf ' %s' $verbs)"; return 0; fi
+    if [ -z "$pending" ]; then say "$(t 'Already installed:' 'Já instalados:')$(printf ' %s' $verbs)"; return 0; fi
     ensure_idle
-    say "Instalando componentes:$pending (pode levar alguns minutos)…"
+    say "$(t 'Installing components:' 'Instalando componentes:')$pending $(t '(this may take a few minutes)…' '(pode levar alguns minutos)…')"
     # o .NET da Microsoft trava o compilador de bibliotecas (mscorsvw.exe) em loop no
     # Wine. Ele só pré-compila bibliotecas (otimização): desativado, o instalador segue
     # na hora e os programas .NET compilam sob demanda, normalmente.
@@ -613,7 +646,7 @@ cmd_components() {  # winapps components [componente...]   (sem nada: os essenci
         say "  • $v"
         if [[ " $OWN_COMPONENTS " == *" $v "* ]]; then
             if install_own_component "$v"; then echo "$v" >>"$done_file"
-            else failed="$failed $v"; warn "falhou: $v (veja $LOG_DIR/components.log)"; fi
+            else failed="$failed $v"; warn "$(t 'failed' 'falhou'): $v ($(t 'see' 'veja') $LOG_DIR/components.log)"; fi
             continue
         fi
         if WINE="$WINE" WINESERVER="$WINESERVER" WINEPREFIX="$PREFIX" WINEDLLOVERRIDES="winemenubuilder.exe=d" \
@@ -623,7 +656,7 @@ cmd_components() {  # winapps components [componente...]   (sem nada: os essenci
             # senão os próximos componentes (WebView2 exige Windows 10) abortam
             case "$v" in dotnet4[0-9]*) "$WINE" winecfg -v win10 >/dev/null 2>&1; "$WINESERVER" -w 2>/dev/null ;; esac
         else
-            failed="$failed $v"; warn "falhou: $v (veja $LOG_DIR/components.log)"
+            failed="$failed $v"; warn "$(t 'failed' 'falhou'): $v ($(t 'see' 'veja') $LOG_DIR/components.log)"
         fi
     done
     # o winetricks deixa o .NET 4.8 em "Windows 7"; programas novos (ex.: Power BI) exigem 10
@@ -633,7 +666,7 @@ cmd_components() {  # winapps components [componente...]   (sem nada: os essenci
     esac
     apply_mac_look    # alguns componentes mudam fontes/versão do Windows
     "$WINESERVER" -w 2>/dev/null
-    [ -z "$failed" ] && say "Componentes instalados." || { warn "Não instalados:$failed"; return 1; }
+    [ -z "$failed" ] && say "$(t 'Components installed.' 'Componentes instalados.')" || { warn "$(t 'Not installed:' 'Não instalados:')$failed"; return 1; }
 }
 
 # .NET Framework pré-compilado (NGEN). No Windows o framework e os programas .NET já vêm
@@ -656,29 +689,31 @@ cmd_optimize() {  # winapps optimize [programa.exe]  → pré-compila o .NET (e 
     local a py="$BASE/bin/exe-kind.py"
     [ -f "$py" ] || py="$SELF_DIR/exe-kind.py"
     [ -f "$PREFIX/drive_c/windows/Microsoft.NET/Framework64/v4.0.30319/ngen.exe" ] \
-        || die "este ambiente não tem o .NET Framework 4 da Microsoft (winapps components dotnet48)"
+        || die "$(t "this environment doesn't have Microsoft's .NET Framework 4 (winapps components dotnet48)" \
+                    'este ambiente não tem o .NET Framework 4 da Microsoft (winapps components dotnet48)')"
     if [ $# -eq 0 ]; then
-        say "Pré-compilando o .NET Framework (só uma vez, alguns minutos)…"
+        say "$(t 'Precompiling the .NET Framework (one time only, a few minutes)…' 'Pré-compilando o .NET Framework (só uma vez, alguns minutos)…')"
         for a in $NET_CORE_ASSEMBLIES; do ngen_run Framework64 install "$a"; done
-        say "Pronto: programas .NET abrem mais rápido."
+        say "$(t 'Done: .NET programs will open faster.' 'Pronto: programas .NET abrem mais rápido.')"
         return 0
     fi
-    [ -f "$1" ] || die "arquivo não encontrado: $1"
-    [ "$(/usr/bin/python3 -I "$py" --clr "$1" 2>/dev/null)" = yes ] || { say "$(basename "$1") não é um programa .NET: nada a fazer."; return 0; }
-    say "Pré-compilando $(basename "$1") e as bibliotecas dele (só uma vez; pode levar vários minutos)…"
+    [ -f "$1" ] || die "$(t 'file not found' 'arquivo não encontrado'): $1"
+    [ "$(/usr/bin/python3 -I "$py" --clr "$1" 2>/dev/null)" = yes ] || {
+        say "$(basename "$1") $(t "isn't a .NET program: nothing to do." 'não é um programa .NET: nada a fazer.')"; return 0; }
+    say "$(t 'Precompiling' 'Pré-compilando') $(basename "$1") $(t 'and its libraries (one time only; this may take several minutes)…' 'e as bibliotecas dele (só uma vez; pode levar vários minutos)…')"
     ngen_run Framework64 install "$("$WINE" winepath -w "$1" 2>/dev/null)"
-    say "Pronto: $(basename "$1") deve abrir mais rápido."
+    say "$(t 'Done:' 'Pronto:') $(basename "$1") $(t 'should open faster now.' 'deve abrir mais rápido.')"
 }
 
 cmd_compat() {  # winapps compat <arquivo>  → aviso de compatibilidade conhecido (JSON) ou nada
-    [ $# -ge 1 ] || die "uso: winapps compat <programa.exe|instalador>"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps compat <program.exe|installer>' 'uso: winapps compat <programa.exe|instalador>')"
     local py="$BASE/bin/exe-kind.py"
     [ -f "$py" ] || py="$SELF_DIR/exe-kind.py"
     /usr/bin/python3 -I "$py" --compat "$1" 2>/dev/null
 }
 
 cmd_needs() {  # winapps needs <arquivo>  → componentes que faltam para esse programa
-    [ $# -ge 1 ] || die "uso: winapps needs <programa.exe|instalador>"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps needs <program.exe|installer>' 'uso: winapps needs <programa.exe|instalador>')"
     local py="$BASE/bin/exe-kind.py" v out=""
     [ -f "$py" ] || py="$SELF_DIR/exe-kind.py"
     for v in $(/usr/bin/python3 -I "$py" --needs "$1" 2>/dev/null); do
@@ -691,28 +726,29 @@ cmd_needs() {  # winapps needs <arquivo>  → componentes que faltam para esse p
 clone_template() {
     mkdir -p "$(dirname "$1")"
     rmdir "$1" 2>/dev/null   # se existir vazia; com conteúdo, o cp falharia em vez de aninhar
-    [ -e "$1" ] && die "já existe: $1"
+    [ -e "$1" ] && die "$(t 'already exists' 'já existe'): $1"
     cp -cR "$TEMPLATE" "$1" 2>/dev/null || cp -R "$TEMPLATE" "$1"
+    ui_locale >"$1/.winapps-locale"   # ambiente novo: idioma da interface (o motor ajusta o registro ao abrir)
 }
 
 cmd_new_prefix() {  # winapps new-prefix <nome>  → novo ambiente separado
-    [ $# -ge 1 ] || die "uso: winapps new-prefix <nome>"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps new-prefix <name>' 'uso: winapps new-prefix <nome>')"
     local dest="$BASE/prefixes/$1"
-    [ -e "$dest" ] && die "já existe: $dest"
+    [ -e "$dest" ] && die "$(t 'already exists' 'já existe'): $dest"
     if [ -f "$TEMPLATE/system.reg" ]; then
         clone_template "$dest"
-        say "Ambiente criado (cópia do modelo): $dest"
+        say "$(t 'Environment created (copy of the template):' 'Ambiente criado (cópia do modelo):') $dest"
     else
         WINAPPS_PREFIX="$dest" PREFIX="$dest" cmd_setup
     fi
-    echo "Use com:  WINAPPS_PREFIX=\"$dest\" winapps …"
+    echo "$(t 'Use it with:' 'Use com:')  WINAPPS_PREFIX=\"$dest\" winapps …"
 }
 
 cmd_run() {  # winapps run arquivo.exe [args...]  (fica em primeiro plano)
-    [ $# -ge 1 ] || die "uso: winapps run <arquivo.exe|.msi|.bat> [args]"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps run <file.exe|.msi|.bat> [args]' 'uso: winapps run <arquivo.exe|.msi|.bat> [args]')"
     require_wine
     local f="$1"; shift
-    [ -f "$f" ] || die "arquivo não encontrado: $f"
+    [ -f "$f" ] || die "$(t 'file not found' 'arquivo não encontrado'): $f"
     local dir; dir="$(cd "$(dirname "$f")" && pwd)"
     local log="$LOG_DIR/$(app_name_for "$f").log"
     cd "$dir" || true
@@ -734,8 +770,8 @@ wait_installer_helpers() {
 }
 
 cmd_adopt() {  # winapps adopt programa.exe → copia para C:\Portable e imprime o caminho
-    [ $# -ge 1 ] || die "uso: winapps adopt <programa.exe>"
-    [ -f "$1" ] || die "arquivo não encontrado: $1"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps adopt <program.exe>' 'uso: winapps adopt <programa.exe>')"
+    [ -f "$1" ] || die "$(t 'file not found' 'arquivo não encontrado'): $1"
     printf 'PATH\t%s\n' "$(adopt_portable "$1")"
 }
 
@@ -760,7 +796,7 @@ burn_extract() {  # burn_extract <setup.exe> <pasta>
 }
 
 cmd_install() {  # winapps install instalador.exe  → roda, espera, sugere atalhos
-    [ $# -ge 1 ] || die "uso: winapps install <instalador.exe|.msi>"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps install <installer.exe|.msi>' 'uso: winapps install <instalador.exe|.msi>')"
     require_wine
     local before after
     before="$(mktemp)"; after="$(mktemp)"
@@ -768,13 +804,14 @@ cmd_install() {  # winapps install instalador.exe  → roda, espera, sugere atal
     local burn msis m
     burn="$(mktemp -d "${TMPDIR:-/tmp}/winapps-burn.XXXXXX")"
     if msis="$(burn_extract "$1" "$burn")" && [ -n "$msis" ]; then
-        say "Instalador com interface que trava no motor: instalando direto os pacotes de dentro dele…"
+        say "$(t "This installer's interface freezes in the engine: installing the packages inside it directly…" \
+                 'Instalador com interface que trava no motor: instalando direto os pacotes de dentro dele…')"
         while IFS= read -r m; do
-            say "Rodando $(basename "$m")… (siga as telas dele normalmente)"
+            say "$(t 'Running' 'Rodando') $(basename "$m")… $(t '(just follow its steps as usual)' '(siga as telas dele normalmente)')"
             cmd_run "$m" ${WINAPPS_MSI_ARGS:-}   # ex.: WINAPPS_MSI_ARGS="/qn ACCEPT_EULA=1" (sem telas)
         done <<<"$msis"
     else
-        say "Rodando o instalador… (siga as telas dele normalmente)"
+        say "$(t 'Running the installer… (just follow its steps as usual)' 'Rodando o instalador… (siga as telas dele normalmente)')"
         cmd_run "$@"
     fi
     rm -rf "$burn"
@@ -784,7 +821,7 @@ cmd_install() {  # winapps install instalador.exe  → roda, espera, sugere atal
     NEW_EXES="$(comm -13 "$before" "$after" | filter_candidates | /usr/bin/python3 -I "$kind_py" --gui-only)"
     rm -f "$before" "$after"
     if [ -z "$NEW_EXES" ]; then
-        warn "Nenhum programa novo encontrado (instalação cancelada?)."
+        warn "$(t 'No new programs found (was the installation canceled?).' 'Nenhum programa novo encontrado (instalação cancelada?).')"
         return 1
     fi
     # programas .NET novos: pré-compila em segundo plano (Power BI: ~4 min, abre ~2x mais rápido)
@@ -799,10 +836,10 @@ cmd_install() {  # winapps install instalador.exe  → roda, espera, sugere atal
         echo "$NEW_EXES" | while IFS= read -r e; do printf 'EXE\t%s\n' "$e"; done
         return 0
     fi
-    say "Programas instalados:"
+    say "$(t 'Installed programs:' 'Programas instalados:')"
     echo "$NEW_EXES" | sed "s|^$PREFIX/drive_c/|  C:/|"
     echo
-    echo "Crie um atalho com:  winapps shortcut \"<caminho do .exe>\" [Nome]"
+    echo "$(t 'Create a shortcut with:  winapps shortcut "<path to .exe>" [Name]' 'Crie um atalho com:  winapps shortcut "<caminho do .exe>" [Nome]')"
 }
 
 xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
@@ -828,10 +865,10 @@ install_engine() {  # install_engine <app> <nome>
 }
 
 cmd_shortcut() {  # winapps shortcut caminho.exe [Nome]
-    [ $# -ge 1 ] || die "uso: winapps shortcut <arquivo.exe> [Nome do app]"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps shortcut <file.exe> [App name]' 'uso: winapps shortcut <arquivo.exe> [Nome do app]')"
     require_wine
     local exe="$1" name="${2:-}"
-    [ -f "$exe" ] || die "arquivo não encontrado: $exe"
+    [ -f "$exe" ] || die "$(t 'file not found' 'arquivo não encontrado'): $exe"
     exe="$(cd "$(dirname "$exe")" && pwd)/$(basename "$exe")"
     [ -n "$name" ] || name="$(app_name_for "$exe")"
     name="$(printf '%s' "$name" | tr '/:' '--')"
@@ -841,7 +878,8 @@ cmd_shortcut() {  # winapps shortcut caminho.exe [Nome]
     local log="$LOG_DIR/$name.log"
 
     if [ -e "$app" ] && ! /usr/libexec/PlistBuddy -c 'Print :WinAppsExe' "$app/Contents/Info.plist" >/dev/null 2>&1; then
-        die "já existe um app chamado \"$name\" que não é do WinApps; escolha outro nome"
+        die "$(t "there's already an app named \"$name\" that isn't from WinApps; choose another name" \
+                 "já existe um app chamado \"$name\" que não é do WinApps; escolha outro nome")"
     fi
     rm -rf "$app"
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -851,9 +889,10 @@ cmd_shortcut() {  # winapps shortcut caminho.exe [Nome]
     # o ícone e o ID do atalho. O que o lançador fazia vem do LSEnvironment do Info.plist, que o
     # macOS aplica ao abrir o app: o motor lê WINAPPS_PROGRAM (o .exe), entra na pasta dele,
     # grava o log em WINAPPS_LOG e mantém o motor aquecido por WINAPPS_PERSIST segundos.
-    local x env_xml=""
+    # idioma: o do ambiente Windows (o de sempre nos ambientes existentes)
+    local x env_xml="" loc; loc="$(prefix_locale)"
     for x in "WINEPREFIX=$PREFIX" "WINEDEBUG=-all" "WINEDLLOVERRIDES=winemenubuilder.exe=d" \
-             "LANG=$(mac_locale)" "WINAPPS_LANG=$(mac_locale)" "PATH=$BASE/bin:/usr/bin:/bin:/usr/sbin:/sbin" "WINAPPS_PATH=$BASE/bin" \
+             "LANG=$loc" "WINAPPS_LANG=$loc" "PATH=$BASE/bin:/usr/bin:/bin:/usr/sbin:/sbin" "WINAPPS_PATH=$BASE/bin" \
              "WINAPPS_PROGRAM=$exe" "WINAPPS_LOG=$log" "WINAPPS_PERSIST=600"; do
         env_xml="$env_xml<key>$(xml_escape "${x%%=*}")</key><string>$(xml_escape "${x#*=}")</string>"
     done
@@ -889,41 +928,42 @@ EOF
     codesign --force --sign - "$app/Contents/MacOS/$name" >/dev/null 2>&1
     touch "$app"
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" 2>/dev/null || true
-    say "Atalho criado: $app"
+    say "$(t 'Shortcut created:' 'Atalho criado:') $app"
 }
 
 mac_driver_option() {  # mac_driver_option <Valor> <programa.exe>|--all on|off|status <rótulo>
     local value="$1" who="$2" what="$3" desc="$4" key gkey='HKCU\Software\Wine\Mac Driver' label v
-    if [ "$who" = "--all" ]; then key="$gkey"; label="todos os programas"
+    if [ "$who" = "--all" ]; then key="$gkey"; label="$(t 'all programs' 'todos os programas')"
     else who="$(basename "$who")"; key="HKCU\\Software\\Wine\\AppDefaults\\$who\\Mac Driver"; label="$who"; fi
     case "$what" in
         on|off)
             "$WINE" reg add "$key" /v "$value" /d "$([ "$what" = on ] && echo y || echo n)" /f >/dev/null 2>&1
-            say "$desc ($label): $([ "$what" = on ] && echo ligada || echo desligada). Reabra os programas para aplicar." ;;
+            say "$desc ($label): $([ "$what" = on ] && t on ligada || t off desligada). $(t 'Reopen your programs to apply.' 'Reabra os programas para aplicar.')" ;;
         status)
             v="$("$WINE" reg query "$key" /v "$value" 2>/dev/null | LC_ALL=C awk '/REG_SZ/{print tolower($3)}')"
             [ -z "$v" ] && [ "$who" != "--all" ] && \
                 v="$("$WINE" reg query "$gkey" /v "$value" 2>/dev/null | LC_ALL=C awk '/REG_SZ/{print tolower($3)}')"
             [ -z "$v" ] && v="${5:-n}"   # padrão do motor
             [ "${v:0:1}" = y ] && echo on || echo off ;;
-        *) die "use on, off ou status" ;;
+        *) die "$(t 'use on, off or status' 'use on, off ou status')" ;;
     esac
 }
 
 # Barra de título do Mac por cima da barra própria de programas como o Power BI (padrão: ligada)
 cmd_titlebar() {  # winapps titlebar <programa.exe>|--all on|off|status
-    [ $# -ge 2 ] || die "uso: winapps titlebar <programa.exe>|--all on|off|status"
+    [ $# -ge 2 ] || die "$(t 'usage: winapps titlebar <program.exe>|--all on|off|status' 'uso: winapps titlebar <programa.exe>|--all on|off|status')"
     require_wine
+    local desc; desc="$(t 'Mac title bar' 'Barra de título do Mac')"
     if [ "$1" = "--all" ] && [ "$2" != status ]; then
         local p
         for p in "$BASE"/prefixes/* "$BASE"/prefixes/.template; do
             [ -f "$p/system.reg" ] || continue
-            WINEPREFIX="$p" mac_driver_option MacTitleBar --all "$2" "Barra de título do Mac" y >/dev/null
+            WINEPREFIX="$p" mac_driver_option MacTitleBar --all "$2" "$desc" y >/dev/null
         done
-        say "Barra de título do Mac (todos os programas): $([ "$2" = on ] && echo ligada || echo desligada). Reabra os programas para aplicar."
+        say "$desc ($(t 'all programs' 'todos os programas')): $([ "$2" = on ] && t on ligada || t off desligada). $(t 'Reopen your programs to apply.' 'Reabra os programas para aplicar.')"
         return 0
     fi
-    mac_driver_option MacTitleBar "$1" "$2" "Barra de título do Mac" y
+    mac_driver_option MacTitleBar "$1" "$2" "$desc" y
 }
 
 # Menus do Mac de um programa (receita "mac_menu" do compat.json) → registro do ambiente
@@ -944,25 +984,25 @@ apply_mac_menu() {  # apply_mac_menu <programa.exe>
 }
 
 cmd_menubar() {  # winapps menubar <programa.exe>|--all on|off|status
-    [ $# -ge 2 ] || die "uso: winapps menubar <programa.exe>|--all on|off|status"
+    [ $# -ge 2 ] || die "$(t 'usage: winapps menubar <program.exe>|--all on|off|status' 'uso: winapps menubar <programa.exe>|--all on|off|status')"
     require_wine
     local who="$1" key gkey='HKCU\Software\Wine\Mac Driver' label
     if [ "$who" = "--all" ]; then
-        key="$gkey"; label="todos os programas"
+        key="$gkey"; label="$(t 'all programs' 'todos os programas')"
     else
         who="$(basename "$who")"; key="HKCU\\Software\\Wine\\AppDefaults\\$who\\Mac Driver"; label="$who"
     fi
     case "$2" in
         on|off)
             "$WINE" reg add "$key" /v NativeMenuBar /d "$([ "$2" = on ] && echo y || echo n)" /f >/dev/null 2>&1
-            say "Menu na barra do Mac ($label): $([ "$2" = on ] && echo ligado || echo desligado). Reabra os programas para aplicar." ;;
+            say "$(t 'Menus in the Mac menu bar' 'Menu na barra do Mac') ($label): $([ "$2" = on ] && t on ligado || t off desligado). $(t 'Reopen your programs to apply.' 'Reabra os programas para aplicar.')" ;;
         status)
             local v
             v="$("$WINE" reg query "$key" /v NativeMenuBar 2>/dev/null | LC_ALL=C awk '/REG_SZ/{print tolower($3)}')"
             [ -z "$v" ] && [ "$who" != "--all" ] && \
                 v="$("$WINE" reg query "$gkey" /v NativeMenuBar 2>/dev/null | LC_ALL=C awk '/REG_SZ/{print tolower($3)}')"
             [ "${v:0:1}" = y ] && echo on || echo off ;;
-        *) die "use on, off ou status" ;;
+        *) die "$(t 'use on, off or status' 'use on, off ou status')" ;;
     esac
 }
 
@@ -994,15 +1034,15 @@ cmd_list() {
         local exe; exe="$(/usr/libexec/PlistBuddy -c 'Print :WinAppsExe' "$a/Contents/Info.plist" 2>/dev/null)" || continue
         printf '%-28s %s\n' "$(basename "$a" .app)" "$exe"; found=1
     done
-    [ $found = 1 ] || echo "Nenhum atalho criado ainda."
+    [ $found = 1 ] || echo "$(t 'No shortcuts yet.' 'Nenhum atalho criado ainda.')"
 }
 
 cmd_remove() {
-    [ $# -ge 1 ] || die "uso: winapps remove <Nome do app>"
+    [ $# -ge 1 ] || die "$(t 'usage: winapps remove <App name>' 'uso: winapps remove <Nome do app>')"
     local app="$APPS_DIR/$1.app"
     /usr/libexec/PlistBuddy -c 'Print :WinAppsExe' "$app/Contents/Info.plist" >/dev/null 2>&1 \
-        || die "'$1' não é um atalho do WinApps"
-    rm -rf "$app"; say "Atalho removido (o programa continua instalado no ambiente Windows)."
+        || die "'$1' $(t "isn't a WinApps shortcut" 'não é um atalho do WinApps')"
+    rm -rf "$app"; say "$(t 'Shortcut removed (the program is still installed in the Windows environment).' 'Atalho removido (o programa continua instalado no ambiente Windows).')"
 }
 
 # Apaga o que é descartável: temporários do Windows (ex.: o Power BI deixa ~1 GB em Temp) e
@@ -1028,14 +1068,14 @@ cmd_clean() {
         busy=1
     fi
     if [ "$busy" = 1 ]; then
-        [ "$force" = 1 ] || die "feche os programas Windows abertos antes de liberar espaço"
+        [ "$force" = 1 ] || die "$(t 'quit the open Windows programs before freeing up space' 'feche os programas Windows abertos antes de liberar espaço')"
         # domínio total: fecha à força tudo o que roda no ambiente antes de limpar
         require_wine
         "$WINESERVER" -k 2>/dev/null
         local p; for p in $(shortcut_pids); do kill -9 "$p" 2>/dev/null; done
         "$WINESERVER" -w 2>/dev/null
         /bin/sleep 1
-        say "Programas Windows fechados."
+        say "$(t 'Windows programs closed.' 'Programas Windows fechados.')"
     fi
     local d before after
     before="$(du -sk "$PREFIX/drive_c" 2>/dev/null | awk '{print $1}')"
@@ -1045,65 +1085,72 @@ cmd_clean() {
     local dl="$HOME/Library/Caches/WinApps/downloads"
     [ "$only_temp" = 0 ] && [ -d "$dl" ] && find "$dl" -mindepth 1 -delete 2>/dev/null
     after="$(du -sk "$PREFIX/drive_c" 2>/dev/null | awk '{print $1}')"
-    say "Espaço liberado: $(( (before - after) / 1024 )) MB no ambiente Windows, mais os downloads em cache."
+    say "$(t 'Space freed:' 'Espaço liberado:') $(( (before - after) / 1024 )) MB $(t 'in the Windows environment, plus cached downloads.' 'no ambiente Windows, mais os downloads em cache.')"
 }
 
 cmd_config() { require_wine; "$WINE" winecfg >/dev/null 2>&1; }
-cmd_kill()   { require_wine; "$WINESERVER" -k; say "Todos os programas Windows foram fechados."; }
+cmd_kill()   { require_wine; "$WINESERVER" -k; say "$(t 'All Windows programs were closed.' 'Todos os programas Windows foram fechados.')"; }
 cmd_drive()  { open "$PREFIX/drive_c"; }
 
 # chamado pelo WinApps.app quando o usuário abre um .exe/.msi pelo Finder
 cmd_gui_open() {
     if ! find_wine_bin >/dev/null; then
-        gui_alert "WinApps" "Primeira vez: o ambiente Windows será preparado (~15 minutos)."
-        cmd_setup >"$LOG_DIR/setup.log" 2>&1 || { gui_alert "WinApps" "Falha na instalação. Veja $LOG_DIR/setup.log"; exit 1; }
+        gui_alert "WinApps" "$(t 'First time: WinApps will now set up the Windows environment (about 15 minutes).' \
+                                 'Primeira vez: o ambiente Windows será preparado (~15 minutos).')"
+        cmd_setup >"$LOG_DIR/setup.log" 2>&1 || { gui_alert "WinApps" "$(t 'Setup failed. See' 'Falha na instalação. Veja') $LOG_DIR/setup.log"; exit 1; }
     fi
     require_wine
     local f="$1"
-    local kind why choice b1 b2 msg
+    local kind why choice b1 b2 msg cancel
     IFS="$(printf '\t')" read -r kind why <<<"$(detect_kind "$f")"
     if [ "$kind" = "installer" ]; then
-        msg="\"$(basename "$f")\" parece ser um INSTALADOR ($why)."
-        b1="Só executar"; b2="Instalar"
+        msg="$(t "\"$(basename "$f")\" looks like an installer ($why)." \
+                 "\"$(basename "$f")\" parece ser um INSTALADOR ($why).")"
+        b1="$(t 'Just Run' 'Só executar')"; b2="$(t 'Install' 'Instalar')"
     else
-        msg="\"$(basename "$f")\" parece ser um programa PORTÁTIL — roda direto, sem instalar ($why)."
-        b1="Executar"; b2="Executar e criar atalho"
+        msg="$(t "\"$(basename "$f")\" looks like a portable program — it runs right away, no installation needed ($why)." \
+                 "\"$(basename "$f")\" parece ser um programa PORTÁTIL — roda direto, sem instalar ($why).")"
+        b1="$(t 'Run' 'Executar')"; b2="$(t 'Run and Create Shortcut' 'Executar e criar atalho')"
     fi
-    choice="$(/usr/bin/osascript - "$msg" "$b1" "$b2" 2>/dev/null <<'EOF'
+    cancel="$(t 'Cancel' 'Cancelar')"
+    choice="$(/usr/bin/osascript - "$msg" "$b1" "$b2" "$cancel" 2>/dev/null <<'EOF'
 on run argv
     activate
     set r to display dialog (item 1 of argv) with title "WinApps" ¬
-        buttons {"Cancelar", item 2 of argv, item 3 of argv} default button (item 3 of argv) cancel button "Cancelar"
+        buttons {item 4 of argv, item 2 of argv, item 3 of argv} default button (item 3 of argv) cancel button (item 4 of argv)
     return button returned of r
 end run
 EOF
 )" || exit 0
 
-    case "$choice" in
-        "Só executar"|"Executar")
-            cmd_run "$f"; return ;;
-        "Executar e criar atalho")
-            local dest; dest="$(adopt_portable "$f")"
-            cmd_shortcut "$dest" >>"$LOG_DIR/install.log" 2>&1
-            cmd_run "$dest"; return ;;
-    esac
+    # compara com os próprios rótulos (já no idioma da interface)
+    if [ "$choice" = "$b1" ]; then
+        cmd_run "$f"; return
+    elif [ "$kind" != "installer" ] && [ "$choice" = "$b2" ]; then
+        local dest; dest="$(adopt_portable "$f")"
+        cmd_shortcut "$dest" >>"$LOG_DIR/install.log" 2>&1
+        cmd_run "$dest"; return
+    fi
 
     # Instalar: roda o instalador e oferece criar atalhos
     cmd_install "$f" >"$LOG_DIR/install.log" 2>&1 || {
-        gui_alert "WinApps" "A instalação terminou, mas nenhum programa novo foi encontrado."
+        gui_alert "WinApps" "$(t 'The installation finished, but no new programs were found.' 'A instalação terminou, mas nenhum programa novo foi encontrado.')"
         return
     }
     # lista para escolha: mostra caminho relativo ao C:
     local items picked
     items="$(echo "$NEW_EXES" | sed "s|^$PREFIX/drive_c/|C:/|")"
-    picked="$(/usr/bin/osascript - "$items" 2>/dev/null <<'EOF'
+    picked="$(/usr/bin/osascript - "$items" \
+        "$(t 'Installation complete! Create a shortcut in Applications for:' 'Instalação concluída! Criar atalho em Aplicativos para:')" \
+        "$(t 'Create Shortcut' 'Criar atalho')" "$(t 'Cancel' 'Cancelar')" 2>/dev/null <<'EOF'
 on run argv
     activate
     set AppleScript's text item delimiters to linefeed
     set opts to text items of (item 1 of argv)
     set r to choose from list opts with title "WinApps" ¬
-        with prompt "Instalação concluída! Criar atalho em Aplicativos para:" ¬
-        default items {item 1 of opts} OK button name "Criar atalho" with multiple selections allowed
+        with prompt (item 2 of argv) ¬
+        default items {item 1 of opts} OK button name (item 3 of argv) cancel button name (item 4 of argv) ¬
+        with multiple selections allowed
     if r is false then return ""
     set AppleScript's text item delimiters to linefeed
     return r as text
@@ -1118,6 +1165,29 @@ EOF
 }
 
 cmd_help() {
+    if [ "$UI_LANG" != pt ]; then
+        cat <<EOF
+WinApps — Windows programs on your Mac, just like native apps
+
+  winapps setup                     set up the engine and the Windows environment (with components)
+  winapps install <setup.exe|.msi>  run an installer and list the programs it installed
+  winapps run <program.exe>         run a .exe/.msi/.bat
+  winapps shortcut <prog.exe> [Name] create ~/Applications/Name.app (with the program's icon)
+  winapps list                      list your shortcuts
+  winapps remove <Name>             delete a shortcut
+  winapps drive                     open the "C:" drive in Finder
+  winapps config                    Windows settings (version, resolution…)
+  winapps kill                      quit all Windows programs (when something is stuck)
+  winapps dxmt on|off|status        Direct3D 10/11 graphics through Metal (DXMT)
+  winapps gamepad on|off|status     game controllers via SDL (default: light mode, no CPU cost)
+  winapps components [names]        install components (no names: the base environment's)
+  winapps menubar <prog.exe>|--all on|off  program menus in the Mac menu bar
+  winapps titlebar <prog.exe>|--all on|off Mac title bar on programs with their own title bar
+
+Windows environment: $PREFIX
+EOF
+        return 0
+    fi
     cat <<EOF
 WinApps — programas Windows no Mac como se fossem nativos
 
@@ -1166,10 +1236,10 @@ case "${1:-help}" in
     menubar)   shift; cmd_menubar "$@" ;;
     titlebar)  shift; cmd_titlebar "$@" ;;
     rebuild)   shift; cmd_rebuild ;;
-    tidy)      shift; configure_prefix; say "Pastas do Mac e idioma ajustados." ;;
+    tidy)      shift; configure_prefix; say "$(t 'Mac folders and language updated.' 'Pastas do Mac e idioma ajustados.')" ;;
     drive)     shift; cmd_drive ;;
     gui-open)  shift; cmd_gui_open "$@" ;;
-    name)      shift; [ $# -ge 1 ] || die "uso: winapps name <arquivo.exe>"; app_name_for "$1" ;;
-    detect)    shift; [ $# -ge 1 ] || die "uso: winapps detect <arquivo.exe>"; detect_kind "$1" ;;
+    name)      shift; [ $# -ge 1 ] || die "$(t 'usage: winapps name <file.exe>' 'uso: winapps name <arquivo.exe>')"; app_name_for "$1" ;;
+    detect)    shift; [ $# -ge 1 ] || die "$(t 'usage: winapps detect <file.exe>' 'uso: winapps detect <arquivo.exe>')"; detect_kind "$1" ;;
     *)         cmd_help ;;
 esac

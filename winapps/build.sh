@@ -37,7 +37,15 @@ iconutil -c icns "$TMP/AppIcon.iconset" -o "$TMP/AppIcon.icns"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$TMP/WinApps" "$APP/Contents/MacOS/WinApps"
-cp "$TMP/AppIcon.icns" "$TMP/icon-frame" "$TMP/ntlm_auth" GUIA.md LICENCAS.md winapps exe-icon.py exe-kind.py compat.json "$APP/Contents/Resources/"
+cp "$TMP/AppIcon.icns" "$TMP/icon-frame" "$TMP/ntlm_auth" winapps exe-icon.py exe-kind.py compat.json "$APP/Contents/Resources/"
+# guia e licenças: inglês (GUIDE/LICENSES) e português (GUIA/LICENCAS); o app escolhe pelo idioma
+for doc in GUIDE.md GUIA.md LICENSES.md LICENCAS.md; do
+    if [ -f "$doc" ]; then cp "$doc" "$APP/Contents/Resources/"; fi
+done
+# traduções da interface (inglês é o padrão; pt-BR quando o Mac está em português)
+for lproj in Resources/*.lproj; do
+    if [ -d "$lproj" ]; then cp -R "$lproj" "$APP/Contents/Resources/"; fi
+done
 # ferramentas e motor corrigido embutidos (gerados por vendor.sh)
 [ -d vendor ] || { echo "Rode antes: bash vendor.sh"; exit 1; }
 cp -R vendor "$APP/Contents/Resources/vendor"
@@ -53,15 +61,19 @@ cat >"$APP/Contents/Info.plist" <<'EOF'
   <key>CFBundleExecutable</key><string>WinApps</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>2.0</string>
-  <key>CFBundleDevelopmentRegion</key><string>pt-BR</string>
+  <key>CFBundleShortVersionString</key><string>2.0.0</string>
+  <key>CFBundleVersion</key><string>200</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array><string>en</string><string>pt-BR</string></array>
+  <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Matheus Faria. Free software under the GNU GPL v3.0.</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
-      <key>CFBundleTypeName</key><string>Programa do Windows</string>
+      <key>CFBundleTypeName</key><string>Windows Program</string>
       <key>CFBundleTypeRole</key><string>Viewer</string>
       <key>LSHandlerRank</key><string>Owner</string>
       <key>LSItemContentTypes</key>
@@ -74,7 +86,7 @@ cat >"$APP/Contents/Info.plist" <<'EOF'
     </dict>
     <!-- .zip e pastas de programas: só em "Abrir com" (não viram padrão) -->
     <dict>
-      <key>CFBundleTypeName</key><string>Programa do Windows compactado ou em pasta</string>
+      <key>CFBundleTypeName</key><string>Windows Program Archive or Folder</string>
       <key>CFBundleTypeRole</key><string>Viewer</string>
       <key>LSHandlerRank</key><string>Alternate</string>
       <key>LSItemContentTypes</key>
@@ -86,7 +98,7 @@ cat >"$APP/Contents/Info.plist" <<'EOF'
   <array>
     <dict>
       <key>UTTypeIdentifier</key><string>com.microsoft.msi-installer</string>
-      <key>UTTypeDescription</key><string>Instalador do Windows</string>
+      <key>UTTypeDescription</key><string>Windows Installer</string>
       <key>UTTypeConformsTo</key><array><string>public.data</string></array>
       <key>UTTypeTagSpecification</key>
       <dict><key>public.filename-extension</key><array><string>msi</string></array></dict>

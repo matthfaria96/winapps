@@ -1,5 +1,5 @@
 {
-  "_sobre": "Programas com compatibilidade conhecida no motor do WinApps. 'match' usa expressões regulares (sem diferenciar maiúsculas) contra: file = nome do arquivo, product = ProductName/FileDescription/CompanyName do .exe, content = bytes do arquivo. status: 'funciona', 'parcial' ou 'nao-funciona'. 'needs' = componentes que o WinApps instala antes (winrt-metadata, webview2, dotnet48…). 'app_name' = nome do atalho. As regras específicas vêm antes das genéricas; vale a primeira que bater. Guia: GUIA.md. 'mac_menu' = menus do Mac do programa (cada item aperta o atalho de teclado dele). 'titlebar_height' = altura (pontos) da barra própria quando ela é HTML (WebView2) e o motor não consegue medir. 'titlebar_buttons' = botões na barra do Mac {left,right: [rótulo, ação, símbolo SF]}; ação = atalho ('ctrl+s') ou 'click:X,Y' (pontos a partir do canto superior esquerdo da janela; X negativo conta da direita) num item da barra própria escondida. Menu '@app' = itens no menu com o nome do programa. Símbolo '@floppy' = disquete desenhado pelo WinApps (o macOS não tem). 'click!:X,Y' = clique que abre uma janela: repete uma vez se nenhuma aparecer. 'verified' = testado de ponta a ponta pelo WinApps, com as correções necessárias (selo Verificado). 'tested' = data do último teste. 'fixes' = correções do WinApps que o programa usa. 'category' = grupo na tabela. 'kind': 'app' (um programa) ou 'grupo' (regra genérica por tecnologia). A tabela COMPATIBILIDADE.md é gerada daqui (compat-md.py). 'summary' = resumo de uma linha (tabela); 'why'/'alt' = detalhes ao expandir.",
+  "_sobre": "Programs with known compatibility in the WinApps engine. 'match' uses regular expressions (case-insensitive) against: file = file name, product = ProductName/FileDescription/CompanyName of the .exe, content = the file's bytes. Rules are checked in order and the first match wins, so specific rules come before generic ones. Human-readable fields are in ENGLISH: name, summary, why, alt, fixes, category, app_name, and the labels in mac_menu and titlebar_buttons. The optional object 'pt' holds the same keys in Brazilian Portuguese; when the interface language is Portuguese each key there replaces the English one (missing keys fall back to English). status: 'funciona' (works), 'parcial' (partial) or 'nao-funciona' (doesn't work) — identifiers, never translated. 'verified' = tested end to end by WinApps, with the fixes it needs (Verified badge). 'tested' = date of the last test (DD/MM/YYYY). 'fixes' = WinApps fixes the program relies on. 'category' = group in the table. 'kind': 'app' (one program) or 'grupo' (generic rule by technology). 'needs' = components WinApps installs first (winrt-metadata, webview2, dotnet48…). 'app_name' = shortcut name (the program's real product name, normally the same in every language). 'summary' = one-line summary (table); 'why'/'alt' = details when expanded. 'mac_menu' = the program's Mac menus (each item presses one of its keyboard shortcuts); menu '@app' = items in the menu named after the program. 'titlebar_height' = height (points) of the program's own title bar when it is HTML (WebView2) and the engine can't measure it. 'titlebar_buttons' = buttons on the Mac title bar {left, right: [label, action, SF Symbol]}; action = a shortcut ('ctrl+s') or 'click:X,Y' (points from the window's top-left corner; negative X counts from the right) on an item of the hidden title bar; 'click!:X,Y' = a click that opens a window: retried once if none appears. Symbol '@floppy' = floppy disk drawn by WinApps (macOS has none). Menus and title bar buttons are written when the shortcut is created, in the interface language at that moment. COMPATIBILITY.md and COMPATIBILIDADE.md are generated from this file (compat-md.py). User guide: GUIDE.md / GUIA.md.",
   "rules": [
     {
       "name": "Power BI Desktop",
@@ -14,93 +14,93 @@
         "winrt-metadata",
         "webview2"
       ],
-      "why": "Funciona no motor do WinApps (testado em 07/11/2026): relatórios, Power Query, Analysis Services e visuais. Antes de instalar, o WinApps prepara o .NET Framework 4.8, os metadados do Windows (WinRT) e o WebView2. A 1ª abertura demora alguns minutos.",
-      "alt": "Ao abrir, pode aparecer um aviso \"Something went wrong\": é só fechar. Atualizações do Power BI podem exigir uma versão nova do WinApps.",
+      "why": "Works in the WinApps engine (tested on Nov 7, 2026): reports, Power Query, Analysis Services and visuals. Before installing, WinApps sets up .NET Framework 4.8, the Windows metadata (WinRT) and WebView2. The first launch takes a few minutes.",
+      "alt": "When it opens, a \"Something went wrong\" message may appear: just close it. Power BI updates may require a newer version of WinApps.",
       "mac_menu": [
         {
           "title": "@app",
           "items": [
             [
-              "Entrar na Conta…",
+              "Sign In to Account…",
               "click!:-197,17"
             ],
             [
-              "Opções e Configurações…",
+              "Options and Settings…",
               "click:-290,17"
             ]
           ]
         },
         {
-          "title": "Arquivo",
+          "title": "File",
           "items": [
             [
-              "Salvar",
+              "Save",
               "ctrl+s"
             ]
           ]
         },
         {
-          "title": "Editar",
+          "title": "Edit",
           "items": [
             [
-              "Desfazer",
+              "Undo",
               "ctrl+z"
             ],
             [
-              "Refazer",
+              "Redo",
               "ctrl+y"
             ],
             "-",
             [
-              "Recortar",
+              "Cut",
               "ctrl+x"
             ],
             [
-              "Copiar",
+              "Copy",
               "ctrl+c"
             ],
             [
-              "Colar",
+              "Paste",
               "ctrl+v"
             ],
             "-",
             [
-              "Selecionar Tudo",
+              "Select All",
               "ctrl+a"
             ],
             [
-              "Limpar Seleção",
+              "Clear Selection",
               "ctrl+shift+c"
             ]
           ]
         },
         {
-          "title": "Exibir",
+          "title": "View",
           "items": [
             [
-              "Ampliar",
+              "Zoom In",
               "ctrl+plus"
             ],
             [
-              "Reduzir",
+              "Zoom Out",
               "ctrl+minus"
             ],
             "-",
             [
-              "Painel de Seleção",
+              "Selection Pane",
               "f6"
             ],
             [
-              "Próxima Seção",
+              "Next Section",
               "ctrl+f6"
             ],
             "-",
             [
-              "Recolher Todas as Tabelas",
+              "Collapse All Tables",
               "alt+shift+1"
             ],
             [
-              "Expandir Todas as Tabelas",
+              "Expand All Tables",
               "alt+shift+9"
             ]
           ]
@@ -109,33 +109,33 @@
           "title": "Visual",
           "items": [
             [
-              "Menu do Visual",
+              "Visual Menu",
               "alt+shift+f10"
             ],
             [
-              "Mostrar Dados",
+              "Show Data",
               "alt+shift+f11"
             ],
             [
-              "Mostrar ou Ocultar Dica",
+              "Show or Hide Tooltip",
               "ctrl+h"
             ],
             "-",
             [
-              "Agrupar Visuais",
+              "Group Visuals",
               "ctrl+g"
             ],
             "-",
             [
-              "Trazer para a Frente",
+              "Bring to Front",
               "ctrl+shift+f"
             ],
             [
-              "Enviar para Trás",
+              "Send to Back",
               "ctrl+shift+b"
             ],
             [
-              "Mostrar ou Ocultar Objeto",
+              "Show or Hide Object",
               "ctrl+shift+s"
             ]
           ]
@@ -146,40 +146,204 @@
       "titlebar_buttons": {
         "left": [
           [
-            "Salvar",
+            "Save",
             "ctrl+s",
             "@floppy"
           ],
           [
-            "Desfazer",
+            "Undo",
             "ctrl+z",
             "arrow.uturn.backward"
           ],
           [
-            "Refazer",
+            "Redo",
             "ctrl+y",
             "arrow.uturn.forward"
           ]
         ],
         "right": [
           [
-            "Entrar",
+            "Sign In",
             "click!:-197,17",
             "person.crop.circle"
           ]
         ]
       },
       "kind": "app",
-      "category": "Produtividade",
+      "category": "Productivity",
       "verified": true,
       "tested": "07/11/2026",
       "fixes": [
-        "WebView2 pelo Metal",
-        "Login Windows local (Analysis Services)",
-        "Barra e menus do Mac",
-        "Zoom da tela de login"
+        "WebView2 through Metal",
+        "Local Windows sign-in (Analysis Services)",
+        "Mac title bar and menus",
+        "Sign-in screen zoom"
       ],
-      "summary": "Relatórios, Power Query, Analysis Services e visuais"
+      "summary": "Reports, Power Query, Analysis Services and visuals",
+      "pt": {
+        "name": "Power BI Desktop",
+        "summary": "Relatórios, Power Query, Analysis Services e visuais",
+        "why": "Funciona no motor do WinApps (testado em 07/11/2026): relatórios, Power Query, Analysis Services e visuais. Antes de instalar, o WinApps prepara o .NET Framework 4.8, os metadados do Windows (WinRT) e o WebView2. A 1ª abertura demora alguns minutos.",
+        "alt": "Ao abrir, pode aparecer um aviso \"Something went wrong\": é só fechar. Atualizações do Power BI podem exigir uma versão nova do WinApps.",
+        "fixes": [
+          "WebView2 pelo Metal",
+          "Login Windows local (Analysis Services)",
+          "Barra e menus do Mac",
+          "Zoom da tela de login"
+        ],
+        "category": "Produtividade",
+        "mac_menu": [
+          {
+            "title": "@app",
+            "items": [
+              [
+                "Entrar na Conta…",
+                "click!:-197,17"
+              ],
+              [
+                "Opções e Configurações…",
+                "click:-290,17"
+              ]
+            ]
+          },
+          {
+            "title": "Arquivo",
+            "items": [
+              [
+                "Salvar",
+                "ctrl+s"
+              ]
+            ]
+          },
+          {
+            "title": "Editar",
+            "items": [
+              [
+                "Desfazer",
+                "ctrl+z"
+              ],
+              [
+                "Refazer",
+                "ctrl+y"
+              ],
+              "-",
+              [
+                "Recortar",
+                "ctrl+x"
+              ],
+              [
+                "Copiar",
+                "ctrl+c"
+              ],
+              [
+                "Colar",
+                "ctrl+v"
+              ],
+              "-",
+              [
+                "Selecionar Tudo",
+                "ctrl+a"
+              ],
+              [
+                "Limpar Seleção",
+                "ctrl+shift+c"
+              ]
+            ]
+          },
+          {
+            "title": "Exibir",
+            "items": [
+              [
+                "Ampliar",
+                "ctrl+plus"
+              ],
+              [
+                "Reduzir",
+                "ctrl+minus"
+              ],
+              "-",
+              [
+                "Painel de Seleção",
+                "f6"
+              ],
+              [
+                "Próxima Seção",
+                "ctrl+f6"
+              ],
+              "-",
+              [
+                "Recolher Todas as Tabelas",
+                "alt+shift+1"
+              ],
+              [
+                "Expandir Todas as Tabelas",
+                "alt+shift+9"
+              ]
+            ]
+          },
+          {
+            "title": "Visual",
+            "items": [
+              [
+                "Menu do Visual",
+                "alt+shift+f10"
+              ],
+              [
+                "Mostrar Dados",
+                "alt+shift+f11"
+              ],
+              [
+                "Mostrar ou Ocultar Dica",
+                "ctrl+h"
+              ],
+              "-",
+              [
+                "Agrupar Visuais",
+                "ctrl+g"
+              ],
+              "-",
+              [
+                "Trazer para a Frente",
+                "ctrl+shift+f"
+              ],
+              [
+                "Enviar para Trás",
+                "ctrl+shift+b"
+              ],
+              [
+                "Mostrar ou Ocultar Objeto",
+                "ctrl+shift+s"
+              ]
+            ]
+          }
+        ],
+        "titlebar_buttons": {
+          "left": [
+            [
+              "Salvar",
+              "ctrl+s",
+              "@floppy"
+            ],
+            [
+              "Desfazer",
+              "ctrl+z",
+              "arrow.uturn.backward"
+            ],
+            [
+              "Refazer",
+              "ctrl+y",
+              "arrow.uturn.forward"
+            ]
+          ],
+          "right": [
+            [
+              "Entrar",
+              "click!:-197,17",
+              "person.crop.circle"
+            ]
+          ]
+        }
+      }
     },
     {
       "name": "RubinOT",
@@ -188,105 +352,156 @@
         "file": "rubinot",
         "product": "rubinot"
       },
-      "why": "Testado em 08/11/2026: login, personagem no mapa, chat, inventário, loja e Battle Pass. A janela pode ser redimensionada à vontade (o jogo escala junto) e o X fecha o jogo. A sessão ainda cai de vez em quando (o cliente fecha sozinho); o vigia instalado com o jogo reabre o cliente automaticamente.",
-      "alt": "Use o atalho RubinOT.app; o launcher não é necessário. A instalação usa a receita do WinApps (programas/rubinot/install.sh). Para não reabrir sozinho: crie o arquivo .rubinot-sem-vigia no ambiente.",
+      "why": "Tested on Nov 8, 2026: login, character on the map, chat, inventory, store and Battle Pass. You can resize the window freely (the game scales with it) and the close button quits the game. The session still drops now and then (the client closes on its own); the watchdog installed with the game reopens the client automatically.",
+      "alt": "Use the RubinOT.app shortcut; the launcher isn't needed. Installation uses the WinApps recipe (programas/rubinot/install.sh). To stop it from reopening automatically, create a file named .rubinot-sem-vigia in the environment folder.",
       "needs": [
         "webview2"
       ],
       "kind": "app",
-      "category": "Jogos",
+      "category": "Games",
       "verified": false,
       "tested": "08/11/2026",
       "fixes": [
-        "Bibliotecas do cliente (emac, avrt)",
-        "Janela com escala + X fecha",
-        "Minimizar sem perder imagem",
-        "Direct3D 11 pelo Metal",
-        "Reabre sozinho se a sessão cair"
+        "Client libraries (emac, avrt)",
+        "Scalable window + close button quits",
+        "Minimize without losing the picture",
+        "Direct3D 11 through Metal",
+        "Reopens automatically if the session drops"
       ],
-      "summary": "Joga bem, mas a sessão cai de vez em quando (reabre sozinho)"
+      "summary": "Plays well, but the session drops now and then (reopens automatically)",
+      "pt": {
+        "name": "RubinOT",
+        "summary": "Joga bem, mas a sessão cai de vez em quando (reabre sozinho)",
+        "why": "Testado em 08/11/2026: login, personagem no mapa, chat, inventário, loja e Battle Pass. A janela pode ser redimensionada à vontade (o jogo escala junto) e o X fecha o jogo. A sessão ainda cai de vez em quando (o cliente fecha sozinho); o vigia instalado com o jogo reabre o cliente automaticamente.",
+        "alt": "Use o atalho RubinOT.app; o launcher não é necessário. A instalação usa a receita do WinApps (programas/rubinot/install.sh). Para não reabrir sozinho: crie o arquivo .rubinot-sem-vigia no ambiente.",
+        "fixes": [
+          "Bibliotecas do cliente (emac, avrt)",
+          "Janela com escala + X fecha",
+          "Minimizar sem perder imagem",
+          "Direct3D 11 pelo Metal",
+          "Reabre sozinho se a sessão cair"
+        ],
+        "category": "Jogos"
+      }
     },
     {
       "name": "Notepad++",
       "status": "funciona",
       "kind": "app",
-      "category": "Utilitários",
+      "category": "Utilities",
       "verified": true,
       "tested": "07/11/2026",
       "match": {
         "file": "notepad\\+\\+",
         "product": "notepad\\+\\+"
       },
-      "why": "Testado em 07/11/2026: editar e salvar arquivos, menus do programa na barra do Mac, Dock e Cmd-Tab com o nome certo.",
+      "why": "Tested on Nov 7, 2026: editing and saving files, the program's menus in the Mac menu bar, and the right name in the Dock and Cmd-Tab.",
       "alt": "",
       "fixes": [
-        "Menus na barra do Mac",
-        "Direct2D estável"
+        "Menus in the Mac menu bar",
+        "Stable Direct2D"
       ],
-      "summary": "Editar e salvar; menus na barra do Mac"
+      "summary": "Edit and save; menus in the Mac menu bar",
+      "pt": {
+        "name": "Notepad++",
+        "summary": "Editar e salvar; menus na barra do Mac",
+        "why": "Testado em 07/11/2026: editar e salvar arquivos, menus do programa na barra do Mac, Dock e Cmd-Tab com o nome certo.",
+        "fixes": [
+          "Menus na barra do Mac",
+          "Direct2D estável"
+        ],
+        "category": "Utilitários"
+      }
     },
     {
       "name": "7-Zip",
       "status": "funciona",
       "kind": "app",
-      "category": "Utilitários",
+      "category": "Utilities",
       "tested": "07/11/2026",
       "match": {
         "file": "^7z(fm|g)?([-_ .]?\\d.*)?\\.exe$|7-zip",
         "product": "7-zip"
       },
-      "why": "Testado em 07/11/2026: abre, nome certo no Dock, menus na barra do Mac.",
+      "why": "Tested on Nov 7, 2026: opens, shows the right name in the Dock, menus in the Mac menu bar.",
       "alt": "",
       "fixes": [],
-      "summary": "Abre; nome no Dock; menus na barra do Mac"
+      "summary": "Opens; right name in the Dock; menus in the Mac menu bar",
+      "pt": {
+        "name": "7-Zip",
+        "summary": "Abre; nome no Dock; menus na barra do Mac",
+        "why": "Testado em 07/11/2026: abre, nome certo no Dock, menus na barra do Mac.",
+        "category": "Utilitários"
+      }
     },
     {
       "name": "SumatraPDF",
       "status": "funciona",
       "kind": "app",
-      "category": "Utilitários",
+      "category": "Utilities",
       "tested": "07/11/2026",
       "match": {
         "file": "sumatrapdf",
         "product": "sumatra ?pdf"
       },
-      "why": "Testado em 07/11/2026: abre PDFs, barra de título do Mac aplicada automaticamente.",
+      "why": "Tested on Nov 7, 2026: opens PDFs; the Mac title bar is applied automatically.",
       "alt": "",
       "fixes": [
-        "Barra do Mac sobre a barra própria"
+        "Mac title bar over the program's own"
       ],
-      "summary": "Abre PDFs; barra do Mac automática"
+      "summary": "Opens PDFs; Mac title bar applied automatically",
+      "pt": {
+        "name": "SumatraPDF",
+        "summary": "Abre PDFs; barra do Mac automática",
+        "why": "Testado em 07/11/2026: abre PDFs, barra de título do Mac aplicada automaticamente.",
+        "fixes": [
+          "Barra do Mac sobre a barra própria"
+        ],
+        "category": "Utilitários"
+      }
     },
     {
       "name": "PuTTY",
       "status": "funciona",
       "kind": "app",
-      "category": "Utilitários",
+      "category": "Utilities",
       "tested": "07/11/2026",
       "match": {
         "file": "^putty",
         "product": "putty"
       },
-      "why": "Testado em 07/11/2026: abre, nome certo no Dock, menus na barra do Mac.",
+      "why": "Tested on Nov 7, 2026: opens, shows the right name in the Dock, menus in the Mac menu bar.",
       "alt": "",
       "fixes": [],
-      "summary": "Abre; nome no Dock; menus na barra do Mac"
+      "summary": "Opens; right name in the Dock; menus in the Mac menu bar",
+      "pt": {
+        "name": "PuTTY",
+        "summary": "Abre; nome no Dock; menus na barra do Mac",
+        "why": "Testado em 07/11/2026: abre, nome certo no Dock, menus na barra do Mac.",
+        "category": "Utilitários"
+      }
     },
     {
-      "name": "Everything (busca de arquivos)",
+      "name": "Everything (file search)",
       "app_name": "Everything",
       "status": "funciona",
       "kind": "app",
-      "category": "Utilitários",
+      "category": "Utilities",
       "tested": "07/11/2026",
       "match": {
         "file": "^everything",
         "product": "everything"
       },
-      "why": "Testado em 07/11/2026: abre, nome certo no Dock, menus na barra do Mac.",
+      "why": "Tested on Nov 7, 2026: opens, shows the right name in the Dock, menus in the Mac menu bar.",
       "alt": "",
       "fixes": [],
-      "summary": "Abre; nome no Dock; menus na barra do Mac"
+      "summary": "Opens; right name in the Dock; menus in the Mac menu bar",
+      "pt": {
+        "name": "Everything (busca de arquivos)",
+        "summary": "Abre; nome no Dock; menus na barra do Mac",
+        "why": "Testado em 07/11/2026: abre, nome certo no Dock, menus na barra do Mac.",
+        "category": "Utilitários"
+      }
     },
     {
       "name": "Microsoft Teams",
@@ -295,24 +510,38 @@
         "file": "teams(setup|bootstrapper)?",
         "product": "microsoft teams"
       },
-      "why": "O Teams atual é distribuído como pacote MSIX da Microsoft Store, que o motor não instala.",
-      "alt": "Use o Teams para Mac (oficial) ou teams.microsoft.com no navegador.",
+      "why": "Today's Teams ships as an MSIX package from the Microsoft Store, which the engine can't install.",
+      "alt": "Use the official Teams for Mac or teams.microsoft.com in your browser.",
       "kind": "app",
-      "category": "Não suportados",
-      "summary": "Pacote MSIX da Microsoft Store não instala"
+      "category": "Not supported",
+      "summary": "Microsoft Store MSIX package doesn't install",
+      "pt": {
+        "name": "Microsoft Teams",
+        "summary": "Pacote MSIX da Microsoft Store não instala",
+        "why": "O Teams atual é distribuído como pacote MSIX da Microsoft Store, que o motor não instala.",
+        "alt": "Use o Teams para Mac (oficial) ou teams.microsoft.com no navegador.",
+        "category": "Não suportados"
+      }
     },
     {
-      "name": "Microsoft Office (365 / 2016 ou mais novo)",
+      "name": "Microsoft Office (365 / 2016 or newer)",
       "status": "nao-funciona",
       "match": {
         "file": "officesetup|setup.*(o365|office)|(o365|office).*setup",
         "product": "microsoft (office|365)|click-to-run"
       },
-      "why": "O instalador Click-to-Run do Office recente não funciona no motor.",
-      "alt": "Use o Office para Mac (oficial) ou office.com no navegador.",
+      "why": "The Click-to-Run installer of recent Office versions doesn't work in the engine.",
+      "alt": "Use the official Office for Mac or office.com in your browser.",
       "kind": "app",
-      "category": "Não suportados",
-      "summary": "Instalador Click-to-Run não funciona"
+      "category": "Not supported",
+      "summary": "Click-to-Run installer doesn't work",
+      "pt": {
+        "name": "Microsoft Office (365 / 2016 ou mais novo)",
+        "summary": "Instalador Click-to-Run não funciona",
+        "why": "O instalador Click-to-Run do Office recente não funciona no motor.",
+        "alt": "Use o Office para Mac (oficial) ou office.com no navegador.",
+        "category": "Não suportados"
+      }
     },
     {
       "name": "Adobe Creative Cloud / Photoshop / Premiere",
@@ -321,51 +550,79 @@
         "file": "creative.?cloud|photoshop|premiere|acrobat.*setup",
         "product": "adobe (creative cloud|photoshop|premiere)"
       },
-      "why": "Os apps da Adobe dependem de serviços e de aceleração de GPU que o motor não reproduz.",
-      "alt": "A Adobe tem versões oficiais para Mac.",
+      "why": "Adobe apps depend on services and GPU acceleration that the engine doesn't reproduce.",
+      "alt": "Adobe has official Mac versions.",
       "kind": "app",
-      "category": "Não suportados",
-      "summary": "Depende de serviços e GPU não reproduzidos"
+      "category": "Not supported",
+      "summary": "Relies on services and GPU features that aren't reproduced",
+      "pt": {
+        "name": "Adobe Creative Cloud / Photoshop / Premiere",
+        "summary": "Depende de serviços e GPU não reproduzidos",
+        "why": "Os apps da Adobe dependem de serviços e de aceleração de GPU que o motor não reproduz.",
+        "alt": "A Adobe tem versões oficiais para Mac.",
+        "category": "Não suportados"
+      }
     },
     {
-      "name": "Jogo com proteção de kernel",
+      "name": "Game with kernel-level protection",
       "status": "nao-funciona",
       "match": {
         "content": "EasyAntiCheat|BEService|BattlEye|vgk\\.sys|emac-core|xigncode|npggNT\\.des|GameMon\\.des|GameGuard|EasyAntiCheat_EOS|mhyprot|ACE-BASE"
       },
-      "why": "Este programa usa proteção de kernel, que exige um Windows de verdade.",
-      "alt": "Veja se o jogo tem versão para Mac ou serviço de jogo na nuvem.",
+      "why": "This program uses kernel-level protection, which requires a real Windows PC.",
+      "alt": "Check whether the game has a Mac version or a cloud gaming service.",
       "id": "kernel-protected-game",
       "kind": "grupo",
-      "category": "Por tecnologia",
-      "summary": "Anti-cheat de kernel exige um Windows real"
+      "category": "By technology",
+      "summary": "Kernel-level protection requires a real Windows PC",
+      "pt": {
+        "name": "Jogo com proteção de kernel",
+        "summary": "Proteção de kernel exige um Windows real",
+        "why": "Este programa usa proteção de kernel, que exige um Windows de verdade.",
+        "alt": "Veja se o jogo tem versão para Mac ou serviço de jogo na nuvem.",
+        "category": "Por tecnologia"
+      }
     },
     {
-      "name": "Programa com navegador embutido (WebView2)",
+      "name": "Program with a built-in browser (WebView2)",
       "status": "funciona",
       "match": {
         "content": "WebView2Loader|MicrosoftEdgeWebview2Setup|Microsoft\\.Web\\.WebView2"
       },
-      "why": "Usa o WebView2 (navegador embutido do Edge). O WinApps instala o WebView2 Runtime se faltar e desenha as telas dele pelo Metal.",
-      "alt": "Se alguma tela ficar em branco, feche e abra o programa de novo; a 1ª imagem pode levar alguns segundos.",
+      "why": "Uses WebView2 (Edge's built-in browser). WinApps installs the WebView2 Runtime if it's missing and draws its screens through Metal.",
+      "alt": "If a screen stays blank, quit and reopen the program; the first image may take a few seconds.",
       "needs": [
         "webview2"
       ],
       "kind": "grupo",
-      "category": "Por tecnologia",
-      "summary": "WebView2 já incluso e desenhado pelo Metal"
+      "category": "By technology",
+      "summary": "WebView2 included and drawn through Metal",
+      "pt": {
+        "name": "Programa com navegador embutido (WebView2)",
+        "summary": "WebView2 já incluso e desenhado pelo Metal",
+        "why": "Usa o WebView2 (navegador embutido do Edge). O WinApps instala o WebView2 Runtime se faltar e desenha as telas dele pelo Metal.",
+        "alt": "Se alguma tela ficar em branco, feche e abra o programa de novo; a 1ª imagem pode levar alguns segundos.",
+        "category": "Por tecnologia"
+      }
     },
     {
-      "name": "Jogo em Direct3D 12",
+      "name": "Direct3D 12 game",
       "status": "parcial",
       "match": {
         "content": "d3d12\\.dll|D3D12CreateDevice"
       },
-      "why": "Usa Direct3D 12, que o motor não suporta no Mac. Alguns jogos têm opção de Direct3D 11, que funciona.",
-      "alt": "Procure nas opções do jogo um modo Direct3D 11 (ou -dx11 na linha de comando).",
+      "why": "Uses Direct3D 12, which the engine doesn't support on the Mac. Some games have a Direct3D 11 option, which works.",
+      "alt": "Look for a Direct3D 11 mode in the game's options (or -dx11 on the command line).",
       "kind": "grupo",
-      "category": "Por tecnologia",
-      "summary": "Sem Direct3D 12; use o modo Direct3D 11 do jogo"
+      "category": "By technology",
+      "summary": "No Direct3D 12; use the game's Direct3D 11 mode",
+      "pt": {
+        "name": "Jogo em Direct3D 12",
+        "summary": "Sem Direct3D 12; use o modo Direct3D 11 do jogo",
+        "why": "Usa Direct3D 12, que o motor não suporta no Mac. Alguns jogos têm opção de Direct3D 11, que funciona.",
+        "alt": "Procure nas opções do jogo um modo Direct3D 11 (ou -dx11 na linha de comando).",
+        "category": "Por tecnologia"
+      }
     }
   ]
 }

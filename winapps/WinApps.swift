@@ -20,6 +20,38 @@ enum Paths {
     static var bundledScript: URL { Bundle.main.url(forResource: "winapps", withExtension: nil)! }
 }
 
+// MARK: - Idioma
+// Inglês é o padrão; português (pt-BR) quando é o idioma preferido do Mac.
+// Textos fixos da SwiftUI viram LocalizedStringKey sozinhos; textos montados em código usam L().
+
+func L(_ key: String) -> String { NSLocalizedString(key, comment: "") }
+
+enum UILang {
+    static let isPT: Bool = (Bundle.main.preferredLocalizations.first ?? "en").lowercased().hasPrefix("pt")
+    /// Valor de WINAPPS_UI_LANG passado ao script.
+    static var code: String { isPT ? "pt" : "en" }
+}
+
+extension String {
+    /// Primeira letra maiúscula (mensagens que vêm do script).
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+/// Saída do script sem cores ANSI.
+func stripANSI(_ s: String) -> String {
+    s.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
+}
+
+/// Primeira linha de erro do script ("Error: …" ou, em português, "Erro: …"), sem o prefixo.
+func scriptError(_ out: String) -> String? {
+    for line in stripANSI(out).split(separator: "\n") {
+        for p in ["Error:", "Erro:"] where line.hasPrefix(p) {
+            return line.dropFirst(p.count).trimmingCharacters(in: .whitespaces)
+        }
+    }
+    return nil
+}
+
 // MARK: - Script
 
 enum Script {
@@ -30,6 +62,7 @@ enum Script {
             p.executableURL = URL(fileURLWithPath: "/bin/bash")
             p.arguments = [Paths.bundledScript.path] + args
             var env = ProcessInfo.processInfo.environment
+            env["WINAPPS_UI_LANG"] = UILang.code   // mensagens e diálogos do script no idioma do app
             if porcelain { env["WINAPPS_PORCELAIN"] = "1" }
             if let prefix { env["WINAPPS_PREFIX"] = prefix }   // ambiente do atalho
             p.environment = env
@@ -56,6 +89,9 @@ enum Script {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = [Paths.bundledScript.path] + args
+        var env = ProcessInfo.processInfo.environment
+        env["WINAPPS_UI_LANG"] = UILang.code
+        p.environment = env
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try? p.run()
@@ -103,14 +139,50 @@ struct PendingFile: Identifiable {
     var compat: Compat? = nil    // aviso de compatibilidade conhecido
 }
 
+/// compat.json embutido no app. Campos de texto em inglês no topo de cada regra; o objeto
+/// opcional "pt" traz os mesmos campos em português (usados quando o app está em português).
+enum CompatDB {
+    static let rules: [[String: Any]] = {
+        guard let url = Bundle.main.url(forResource: "compat", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rules = obj["rules"] as? [[String: Any]] else { return [] }
+        return rules
+    }()
+
+    /// Campo da regra no idioma do app: rule["pt"][key] em português, senão rule[key].
+    static func field(_ r: [String: Any], _ key: String) -> Any? {
+        if UILang.isPT, let pt = r["pt"] as? [String: Any], let v = pt[key] { return v }
+        return r[key]
+    }
+    static func text(_ r: [String: Any], _ key: String) -> String { field(r, key) as? String ?? "" }
+    static func list(_ r: [String: Any], _ key: String) -> [String] {
+        if let a = field(r, key) as? [String] { return a }
+        // a saída do script junta listas com "; " (fixes) ou espaço (needs)
+        let s = field(r, key) as? String ?? ""
+        let sep: Character = key == "needs" ? " " : ";"
+        return s.split(separator: sep).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// Regra pelo nome (em inglês ou no "pt").
+    static func rule(named name: String) -> [String: Any]? {
+        guard !name.isEmpty else { return nil }
+        return rules.first { r in
+            r["name"] as? String == name || (r["pt"] as? [String: Any])?["name"] as? String == name
+        }
+    }
+}
+
 /// Aviso da lista de compatibilidade (compat.json).
 struct Compat {
     let name: String, status: String, why: String, alt: String
+    var key = ""          // nome da regra no topo do JSON (identidade, independe do idioma)
     var verified = false
     var tested = ""
     var fixes: [String] = []
     var summary = ""
-    var category = ""
+    var category = ""     // texto exibido (no idioma do app)
+    var categoryKey = ""  // categoria no topo do JSON (ordem da tabela)
     var needs: [String] = []
     var broken: Bool { status == "nao-funciona" }
     var works: Bool { status == "funciona" }
@@ -119,25 +191,38 @@ struct Compat {
          verified: Bool = false, tested: String = "", fixes: [String] = []) {
         self.name = name; self.status = status; self.why = why; self.alt = alt
         self.verified = verified; self.tested = tested; self.fixes = fixes
+        self.key = name
     }
 
-    /// Linha JSON de `winapps compat` (exe-kind.py --compat).
+    /// Linha JSON de `winapps compat` (exe-kind.py --compat). Quando a regra existe no
+    /// compat.json do app, usa ela inteira (com os textos no idioma do app).
     init?(json out: String) {
         guard let line = out.split(separator: "\n").last(where: { $0.hasPrefix("{") }),
-              let o = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: String] else { return nil }
-        self.init(name: o["name"] ?? "", status: o["status"] ?? "", why: o["why"] ?? "", alt: o["alt"] ?? "",
-                  verified: !(o["verified"] ?? "").isEmpty, tested: o["tested"] ?? "",
-                  fixes: (o["fixes"] ?? "").split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+              let o = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { return nil }
+        // "rule" = nome da regra no topo do compat.json (não depende do idioma)
+        let ruleName = o["rule"] as? String ?? o["name"] as? String ?? ""
+        if let r = CompatDB.rule(named: ruleName) { self.init(rule: r); return }
+        let verified: Bool = (o["verified"] as? Bool) ?? !((o["verified"] as? String) ?? "").isEmpty
+        self.init(name: CompatDB.text(o, "name"), status: o["status"] as? String ?? "",
+                  why: CompatDB.text(o, "why"), alt: CompatDB.text(o, "alt"),
+                  verified: verified, tested: o["tested"] as? String ?? "", fixes: CompatDB.list(o, "fixes"))
+        key = ruleName.isEmpty ? name : ruleName
+        summary = CompatDB.text(o, "summary")
+        category = CompatDB.text(o, "category")
+        categoryKey = o["category"] as? String ?? ""
+        needs = CompatDB.list(o, "needs")
     }
 
     /// Regra do compat.json (aba Compatibilidade).
     init(rule r: [String: Any]) {
-        self.init(name: r["name"] as? String ?? "", status: r["status"] as? String ?? "",
-                  why: r["why"] as? String ?? "", alt: r["alt"] as? String ?? "",
+        self.init(name: CompatDB.text(r, "name"), status: r["status"] as? String ?? "",
+                  why: CompatDB.text(r, "why"), alt: CompatDB.text(r, "alt"),
                   verified: r["verified"] as? Bool ?? false, tested: r["tested"] as? String ?? "",
-                  fixes: r["fixes"] as? [String] ?? [])
-        summary = r["summary"] as? String ?? ""
-        category = r["category"] as? String ?? ""
+                  fixes: CompatDB.list(r, "fixes"))
+        key = r["name"] as? String ?? name
+        summary = CompatDB.text(r, "summary")
+        category = CompatDB.text(r, "category")
+        categoryKey = r["category"] as? String ?? ""
         needs = r["needs"] as? [String] ?? []
     }
 
@@ -157,11 +242,11 @@ enum Badge {
     case verified, works, partial, broken, untested
     var label: String {
         switch self {
-        case .verified: return "Verificado"
-        case .works: return "Funciona"
-        case .partial: return "Parcial"
-        case .broken: return "Não funciona"
-        case .untested: return "Não testado"
+        case .verified: return L("Verified")
+        case .works: return L("Works")
+        case .partial: return L("Partial")
+        case .broken: return L("Doesn’t Work")
+        case .untested: return L("Untested")
         }
     }
     var symbol: String {
@@ -184,11 +269,11 @@ enum Badge {
     }
     var help: String {
         switch self {
-        case .verified: return "Testado de ponta a ponta, com correções próprias do WinApps. Garantido nesta versão."
-        case .works: return "Testado: abre e o uso principal funciona."
-        case .partial: return "Funciona com limitações."
-        case .broken: return "Não roda no WinApps."
-        case .untested: return "Ainda não testado pelo WinApps: pode funcionar, mas ninguém conferiu."
+        case .verified: return L("Tested end to end, with WinApps’ own fixes. Guaranteed in this version.")
+        case .works: return L("Tested: it opens and its main features work.")
+        case .partial: return L("Works with limitations.")
+        case .broken: return L("Doesn’t run in WinApps.")
+        case .untested: return L("Not tested by WinApps yet: it may work, but nobody has checked.")
         }
     }
 }
@@ -210,8 +295,8 @@ struct BadgeView: View {
 func componentLabel(_ c: String) -> String {
     switch c {
     case "dotnet48": return ".NET Framework 4.8"
-    case "winrt-metadata": return "metadados do Windows (WinRT)"
-    case "webview2": return "WebView2 (navegador embutido)"
+    case "winrt-metadata": return L("Windows metadata (WinRT)")
+    case "webview2": return L("WebView2 (built-in browser)")
     case let s where s.hasPrefix("dotnetdesktop"): return ".NET \(s.dropFirst(13)) Desktop Runtime"
     case let s where s.hasPrefix("dotnet"): return ".NET \(s.dropFirst(6)) Runtime"
     default: return c
@@ -247,7 +332,9 @@ final class Model: ObservableObject {
     @Published var badgesChecked: Set<String> = []
     @Published var toast: String?                       // aviso rápido ("importado para o WinApps")
     // 0 Biblioteca, 1 Compatibilidade, 2 Arquivos — lembrada entre aberturas
-    @Published var tab = UserDefaults.standard.integer(forKey: "tab") {
+    // "-WinAppsTab N" ao abrir (capturas de tela) escolhe a aba sem mudar a lembrada
+    @Published var tab = UserDefaults.standard.object(forKey: "WinAppsTab") != nil
+        ? UserDefaults.standard.integer(forKey: "WinAppsTab") : UserDefaults.standard.integer(forKey: "tab") {
         didSet { UserDefaults.standard.set(tab, forKey: "tab") }
     }
 
@@ -294,7 +381,7 @@ final class Model: ObservableObject {
     func badge(_ app: LibraryApp) -> Badge { badges[app.exe]?.badge ?? .untested }
     func size(of app: LibraryApp) -> Int64? { storage.first { $0.kind == 2 && $0.name == app.name }?.bytes }
     /// Programa da biblioteca que corresponde a uma regra do compat.json (para a tabela).
-    func installed(_ c: Compat) -> LibraryApp? { library.first { badges[$0.exe]?.name == c.name } }
+    func installed(_ c: Compat) -> LibraryApp? { library.first { badges[$0.exe]?.key == c.key } }
 
     // ---------- armazenamento (quanto o WinApps ocupa)
 
@@ -336,15 +423,14 @@ final class Model: ObservableObject {
 
     func cleanUp() {
         Task {
-            busy = "Fechando os programas Windows e liberando espaço…"
+            busy = L("Quitting Windows programs and freeing up space…")
             let r = await Script.run(["clean", "--force"])
             busy = nil
-            let clean = r.out.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
-            let lines = clean.split(separator: "\n").map(String.init)
-            if let err = lines.first(where: { $0.hasPrefix("Erro:") }) {
-                message = String(err.dropFirst(6)).prefix(1).uppercased() + String(err.dropFirst(7)) + "."
+            let lines = stripANSI(r.out).split(separator: "\n").map(String.init)
+            if let err = scriptError(r.out) {
+                message = err.capitalizedFirst + (err.hasSuffix(".") ? "" : ".")
             } else {
-                showToast(lines.last.map { $0.replacingOccurrences(of: "==> ", with: "") } ?? "Espaço liberado.")
+                showToast(lines.last.map { $0.replacingOccurrences(of: "==> ", with: "") } ?? L("Space freed up."))
             }
             loadStorage()
         }
@@ -370,12 +456,12 @@ final class Model: ObservableObject {
                 .volumeAvailableCapacityForImportantUsage ?? 0
             var items: [StorageItem] = []
             let progs = programs.map { StorageItem(name: $0.0, bytes: sizes[$0.1] ?? 0, kind: 2) }.sorted { $0.bytes > $1.bytes }
-            items.append(StorageItem(name: "Motor", bytes: sizes[motor] ?? 0, kind: 0))
-            items.append(StorageItem(name: "Ambiente Windows",
+            items.append(StorageItem(name: L("Engine"), bytes: sizes[motor] ?? 0, kind: 0))
+            items.append(StorageItem(name: L("Windows Environment"),
                                      bytes: max(0, (sizes[prefix] ?? 0) - progs.reduce(0) { $0 + $1.bytes } - temp), kind: 1))
             items += progs
             let junk = temp + (sizes[cache] ?? 0)
-            if junk > 1_000_000 { items.append(StorageItem(name: "Temporários e cache", bytes: junk, kind: 3)) }
+            if junk > 1_000_000 { items.append(StorageItem(name: L("Temporary Files and Cache"), bytes: junk, kind: 3)) }
             let result = items
             await MainActor.run {
                 self.storage = result
@@ -465,9 +551,9 @@ final class Model: ObservableObject {
         Task {
             _ = await Script.run(["titlebar", app.exe, on ? "on" : "off"], prefix: app.prefix)
             loadTitleBarStates()
-            message = on
-                ? "\(app.name) vai usar a barra de título do Mac (com os botões e menus do Mac). Feche e abra o programa para aplicar.\n\nPara ver a barra original dele na hora: menu Janela → Mostrar a Barra do Programa."
-                : "\(app.name) volta a mostrar a própria barra de título. Feche e abra o programa para aplicar."
+            message = String(format: on
+                ? L("%@ will use the Mac title bar, with Mac window buttons and menus. Quit and reopen the program to apply.\n\nTo see its own title bar at any time, choose Window → Show Program Title Bar.")
+                : L("%@ will go back to showing its own title bar. Quit and reopen the program to apply."), app.name)
         }
     }
 
@@ -477,8 +563,8 @@ final class Model: ObservableObject {
             _ = await Script.run(["titlebar", "--all", on ? "on" : "off"])
             loadTitleBarStates()
             message = on
-                ? "Programas que desenham a própria barra de título (Power BI e parecidos) vão usar a barra do Mac. Reabra os programas para aplicar."
-                : "Esses programas voltam a mostrar a própria barra de título. Reabra os programas para aplicar."
+                ? L("Programs that draw their own title bar (like Power BI) will use the Mac title bar. Reopen the programs to apply.")
+                : L("These programs will go back to showing their own title bar. Reopen the programs to apply.")
         }
     }
 
@@ -491,21 +577,21 @@ final class Model: ObservableObject {
         Task {
             _ = await Script.run(["menubar", app.exe, on ? "on" : "off"])
             loadNativeMenuStates()
-            message = on
-                ? "O menu do \(app.name) vai aparecer na barra de menus do Mac, lá em cima. Feche e abra o programa para aplicar."
-                : "O menu do \(app.name) volta a ficar só dentro da janela. Feche e abra o programa para aplicar."
+            message = String(format: on
+                ? L("%@’s menus will appear in the Mac menu bar at the top of the screen. Quit and reopen the program to apply.")
+                : L("%@’s menus will stay inside its window only. Quit and reopen the program to apply."), app.name)
         }
     }
 
     // ---------- preparar o ambiente Windows
 
     func setup() async -> Bool {
-        busy = "Preparando o ambiente Windows…\nSó na primeira vez: o motor (~225 MB) e tudo que os programas precisam (fontes, Visual C++, DirectX, .NET Framework 4.8 e WebView2). Leva uns 15 minutos; depois tudo abre direto."
+        busy = L("Setting up the Windows environment…\nFirst time only: the engine (~225 MB) and everything programs need (fonts, Visual C++, DirectX, .NET Framework 4.8 and WebView2). It takes about 15 minutes; after that, everything opens right away.")
         let r = await Script.run(["setup"])
         busy = nil
         await refreshWine()
         if wineVersion == nil {
-            message = "Não consegui preparar o ambiente Windows.\n\(r.out.suffix(400))"
+            message = L("Couldn’t set up the Windows environment.") + "\n" + String(r.out.suffix(400))
             return false
         }
         return true
@@ -529,7 +615,7 @@ final class Model: ObservableObject {
             if isDir || url.pathExtension.lowercased() == "zip" {
                 importBundle(url); return
             }
-            busy = "Analisando \(url.lastPathComponent)…"
+            busy = String(format: L("Analyzing %@…"), url.lastPathComponent)
             let r = await Script.run(["detect", url.path])
             let n = await Script.run(["needs", url.path])
             let c = await Script.run(["compat", url.path])
@@ -562,13 +648,12 @@ final class Model: ObservableObject {
         guard !needs.isEmpty else { then(); return }
         Task {
             let names = needs.map(componentLabel).joined(separator: ", ")
-            busy = "Instalando \(names)…\nIsso pode levar vários minutos (só acontece uma vez)."
+            busy = String(format: L("Installing %@…\nThis may take several minutes (it only happens once)."), names)
             let r = await Script.run(["components"] + needs)
             busy = nil
             if r.code != 0 {
-                let clean = r.out.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
-                let err = clean.split(separator: "\n").first(where: { $0.hasPrefix("Erro:") }).map { String($0.dropFirst(6)) }
-                message = err ?? "Não consegui instalar \(names). O programa pode não funcionar direito."
+                let err = scriptError(r.out)
+                message = err ?? String(format: L("Couldn’t install %@. The program may not work properly."), names)
                 if err != nil { return }
             }
             then()
@@ -577,14 +662,14 @@ final class Model: ObservableObject {
 
     func install(_ url: URL) {
         Task {
-            busy = "Instalando \(url.deletingPathExtension().lastPathComponent)…\nSiga as telas do instalador normalmente."
+            busy = String(format: L("Installing %@…\nFollow the installer’s steps as usual."), url.deletingPathExtension().lastPathComponent)
             let r = await Script.run(["install", url.path], porcelain: true)
             busy = nil
             let exes = r.out.split(separator: "\n").compactMap { line -> String? in
                 line.hasPrefix("EXE\t") ? String(line.dropFirst(4)) : nil
             }
             if exes.isEmpty {
-                message = "A instalação terminou, mas nenhum programa novo foi encontrado.\nSe ele já estava instalado, use \"Adicionar programa\" e escolha o .exe dentro de Arquivos do Windows."
+                message = L("The installation finished, but no new program was found.\nIf it was already installed, choose Add Installed Program… and pick its .exe on drive C:.")
                 return
             }
             var list: [Candidate] = []
@@ -600,7 +685,7 @@ final class Model: ObservableObject {
         let chosen = candidates.filter(\.selected)
         showCandidates = false
         Task {
-            busy = "Adicionando à biblioteca…"
+            busy = L("Adding to the library…")
             for c in chosen { _ = await Script.run(["shortcut", c.path, c.name]) }
             busy = nil
             reloadLibrary()
@@ -611,7 +696,7 @@ final class Model: ObservableObject {
     /// se dentro houver um instalador, segue o fluxo de instalação.
     func importBundle(_ url: URL) {
         Task {
-            busy = "Analisando \(url.lastPathComponent)…"
+            busy = String(format: L("Analyzing %@…"), url.lastPathComponent)
             let r = await Script.run(["import", url.path])
             busy = nil
             let lines = r.out.split(separator: "\n").map(String.init)
@@ -619,9 +704,8 @@ final class Model: ObservableObject {
                 handle(URL(fileURLWithPath: String(inst.dropFirst(10)))); return
             }
             guard let line = lines.first(where: { $0.hasPrefix("PATH\t") }) else {
-                let clean = r.out.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
-                message = clean.split(separator: "\n").first(where: { $0.hasPrefix("Erro:") }).map { String($0.dropFirst(6)) }
-                    ?? "Não encontrei um programa do Windows em \(url.lastPathComponent)."
+                message = scriptError(r.out)
+                    ?? String(format: L("Couldn’t find a Windows program in %@."), url.lastPathComponent)
                 return
             }
             await finishImport(String(line.dropFirst(5)), open: true)
@@ -629,13 +713,13 @@ final class Model: ObservableObject {
     }
 
     func finishImport(_ dest: String, open: Bool) async {
-        busy = "Adicionando à biblioteca…"
+        busy = L("Adding to the library…")
         _ = await Script.run(["shortcut", dest])
         busy = nil
         tab = 0
         reloadLibrary()
         if let app = library.first(where: { $0.exe == dest }) {
-            showToast("\(app.name) foi importado para o WinApps: está na biblioteca e em Aplicativos. O original pode ser apagado.")
+            showToast(String(format: L("%@ was imported into WinApps: it’s in your library and in Applications. You can delete the original."), app.name))
             if open { self.open(app) }
         }
     }
@@ -643,10 +727,10 @@ final class Model: ObservableObject {
     /// Programa portátil: copia para dentro do C:\Portable, cria o atalho e abre.
     func adoptPortable(_ url: URL, open: Bool) {
         Task {
-            busy = "Adicionando \(url.deletingPathExtension().lastPathComponent) à biblioteca…"
+            busy = String(format: L("Adding %@ to the library…"), url.deletingPathExtension().lastPathComponent)
             let r = await Script.run(["import", url.path])
             guard let line = r.out.split(separator: "\n").first(where: { $0.hasPrefix("PATH\t") }) else {
-                busy = nil; message = "Não consegui copiar o programa."; return
+                busy = nil; message = scriptError(r.out) ?? L("Couldn’t copy the program."); return
             }
             busy = nil
             await finishImport(String(line.dropFirst(5)), open: open)
@@ -658,7 +742,7 @@ final class Model: ObservableObject {
     func addExisting(_ url: URL) {
         if url.path.hasPrefix(Paths.driveC.path) {
             Task {
-                busy = "Adicionando à biblioteca…"
+                busy = L("Adding to the library…")
                 _ = await Script.run(["shortcut", url.path])
                 busy = nil
                 reloadLibrary()
@@ -689,38 +773,36 @@ final class Model: ObservableObject {
             ok = (LSSetDefaultRoleHandlerForContentType(t as CFString, .viewer, id as CFString) == noErr) && ok
         }
         if silent { return }   // configuração automática: sem alerta (o .exe é o principal)
-        message = ok ? "Pronto! Agora é só dar dois cliques em qualquer arquivo .exe ou .msi no Finder."
-                     : "O macOS não deixou mudar o app padrão. Use Obter Informações → Abrir com → WinApps → Alterar Tudo."
+        message = ok ? L("Done! Now just double-click any .exe or .msi file in the Finder.")
+                     : L("macOS didn’t allow changing the default app. In the Finder, choose Get Info → Open With → WinApps → Change All.")
     }
 
     func toggleGamepad() {
         let on = !gamepadOn
         Task {
-            busy = on ? "Ligando os controles de jogo (SDL)…" : "Voltando os controles para o modo leve…"
+            busy = on ? L("Turning on advanced game controllers (SDL)…") : L("Switching game controllers back to light mode…")
             _ = await Script.run(["gamepad", on ? "on" : "off"])
             busy = nil
             gamepadOn = FileManager.default.fileExists(atPath: Paths.base.appendingPathComponent(".gamepad-sdl").path)
             message = gamepadOn
-                ? "Controles de jogo via SDL ligados: melhor para jogos com controle de Xbox/PlayStation, mas gasta um pouco de CPU o tempo todo. Reabra os programas."
-                : "Controles no modo leve: continuam funcionando, sem gastar CPU à toa. Reabra os programas."
+                ? L("Game controllers via SDL are on: better for games with Xbox or PlayStation controllers, but they use a little CPU all the time. Reopen the programs to apply.")
+                : L("Game controllers are in light mode: they still work, without wasting CPU. Reopen the programs to apply.")
         }
     }
 
     func toggleDXMT() {
         let on = !dxmtOn
         Task {
-            busy = on ? "Ligando os gráficos via Metal (DXMT)…" : "Desligando o DXMT…"
+            busy = on ? L("Turning on Metal graphics (DXMT)…") : L("Turning off DXMT…")
             let r = await Script.run(["dxmt", on ? "on" : "off"])
             busy = nil
             dxmtOn = FileManager.default.fileExists(atPath: Paths.base.appendingPathComponent(".dxmt-installed").path)
             if r.code != 0 {
-                let clean = r.out.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
-                message = clean.split(separator: "\n").first(where: { $0.hasPrefix("Erro:") }).map { String($0.dropFirst(6)) }
-                    ?? "Não consegui mudar o DXMT."
+                message = scriptError(r.out) ?? L("Couldn’t change the DXMT setting.")
             } else {
                 message = on
-                    ? "Jogos e programas Direct3D 10/11 agora desenham direto pelo Metal (DXMT). Reabra os programas para aplicar."
-                    : "DXMT desligado: volta o Direct3D padrão do motor (que costuma travar no Mac com Direct3D 11)."
+                    ? L("Direct3D 10/11 games and programs now draw directly through Metal (DXMT). Reopen the programs to apply.")
+                    : L("DXMT is off: the engine’s standard Direct3D is back (it often freezes on the Mac with Direct3D 11).")
             }
         }
     }
@@ -731,31 +813,30 @@ final class Model: ObservableObject {
             _ = await Script.run(["menubar", "--all", on ? "on" : "off"])
             loadNativeMenuStates()
             message = on
-                ? "Os menus dos programas Windows vão aparecer na barra de menus do Mac. Reabra os programas para aplicar.\n\nPara desligar só um programa: botão direito nele na Biblioteca."
-                : "Os menus voltam a ficar só dentro das janelas dos programas. Reabra os programas para aplicar."
+                ? L("Windows programs’ menus will appear in the Mac menu bar. Reopen the programs to apply.\n\nTo turn this off for just one program, Control-click it in the Library.")
+                : L("Menus will stay inside the programs’ windows only. Reopen the programs to apply.")
         }
     }
 
     /// Instala componentes do Windows (sem nomes: os essenciais).
     func installComponents(_ names: [String], label: String) {
         Task {
-            busy = "Instalando \(label)…\nIsso pode levar vários minutos."
+            busy = String(format: L("Installing %@…\nThis may take several minutes."), label)
             let r = await Script.run(["components"] + names)
             busy = nil
-            let clean = r.out.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
-            let lines = clean.split(separator: "\n").map(String.init)
+            let lines = stripANSI(r.out).split(separator: "\n").map(String.init)
             if r.code == 0 {
-                message = "\(label.prefix(1).uppercased() + label.dropFirst()) instalado(s)."
-            } else if let err = lines.first(where: { $0.hasPrefix("Erro:") }) {
-                message = String(err.dropFirst(6))
+                message = String(format: L("%@ installed."), label.capitalizedFirst)
+            } else if let err = scriptError(r.out) {
+                message = err
             } else {
-                message = "Alguns componentes não foram instalados.\n" + lines.suffix(3).joined(separator: "\n")
+                message = L("Some components weren’t installed.") + "\n" + lines.suffix(3).joined(separator: "\n")
             }
         }
     }
 
     func killAll() {
-        Task { _ = await Script.run(["kill"]); message = "Todos os programas Windows foram fechados." }
+        Task { _ = await Script.run(["kill"]); message = L("All Windows programs were quit.") }
     }
 
     /// Nome do atalho: quem decide é o script (regra do compat.json / nome do produto).
@@ -781,9 +862,9 @@ final class Model: ObservableObject {
 enum Pick {
     static func program() -> URL? {
         let p = NSOpenPanel()
-        p.title = "Abrir programa do Windows"
-        p.message = "Escolha um instalador (.msi, setup.exe), um programa (.exe), um .zip ou a pasta do programa"
-        p.prompt = "Abrir"
+        p.title = L("Open Windows Program")
+        p.message = L("Choose an installer (.msi, setup.exe), a program (.exe), a .zip file or the program’s folder")
+        p.prompt = L("Open")
         p.canChooseDirectories = true
         p.allowedContentTypes = [UTType(filenameExtension: "exe")!, UTType(filenameExtension: "msi")!, .zip, .folder]
         p.directoryURL = Paths.home.appendingPathComponent("Downloads")
@@ -792,9 +873,9 @@ enum Pick {
 
     static func existing() -> URL? {
         let p = NSOpenPanel()
-        p.title = "Adicionar programa à biblioteca"
-        p.message = "Escolha o .exe do programa — um já instalado (em Arquivos do Windows) ou um portátil"
-        p.prompt = "Adicionar"
+        p.title = L("Add Program to Library")
+        p.message = L("Choose the program’s .exe — one already installed on drive C: or a portable one")
+        p.prompt = L("Add")
         p.allowedContentTypes = [UTType(filenameExtension: "exe")!]
         p.directoryURL = Paths.driveC
         return p.runModal() == .OK ? p.url : nil
@@ -834,10 +915,10 @@ struct ContentView: View {
         .navigationTitle("WinApps")
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Picker("Seção", selection: $model.tab) {
-                    Text("Biblioteca").tag(0)
-                    Text("Compatibilidade").tag(1)
-                    Text("Arquivos").tag(2)
+                Picker("Section", selection: $model.tab) {
+                    Text("Library").tag(0)
+                    Text("Compatibility").tag(1)
+                    Text("Files").tag(2)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
@@ -845,10 +926,10 @@ struct ContentView: View {
                 ToolbarItem(placement: .primaryAction) { statusPill }
             }
             ToolbarItem(placement: .primaryAction) {
-                ProminentButton(title: "Abrir programa", symbol: "plus") {
+                ProminentButton(title: L("Open Program"), symbol: "plus") {
                     if let u = Pick.program() { model.handle(u) }
                 }
-                .help("Abrir um .exe, .msi, .zip ou a pasta de um programa do Windows (⌘O)")
+                .help("Open a Windows program’s .exe, .msi, .zip or folder (⌘O)")
             }
             if #available(macOS 26.0, *) {
                 ToolbarSpacer(.fixed, placement: .primaryAction)
@@ -875,37 +956,37 @@ struct ContentView: View {
     var menu: some View {
         Menu {
             if let v = model.wineVersion {
-                Text("Ambiente Windows pronto · motor \(v)")
+                Text(String(format: L("Windows environment ready · engine %@"), v))
                 Divider()
             }
-            Button("Guia do WinApps") { Guide.show() }
+            Button("WinApps Guide") { Guide.show() }
             Divider()
-            Button("Fechar todos os programas Windows") { model.killAll() }
+            Button("Quit All Windows Programs") { model.killAll() }
             Divider()
             // o padrão já é o que funcionou nos testes; aqui só para casos específicos
-            Menu("Avançado") {
-                Toggle("Menus dos programas na barra do Mac", isOn: Binding(
+            Menu("Advanced") {
+                Toggle("Program Menus in the Mac Menu Bar", isOn: Binding(
                     get: { model.nativeMenuAll }, set: { _ in model.toggleNativeMenuAll() }))
-                Toggle("Barra de título do Mac em programas com barra própria", isOn: Binding(
+                Toggle("Mac Title Bar for Programs with Custom Title Bars", isOn: Binding(
                     get: { model.titleBarAll }, set: { _ in model.toggleTitleBarAll() }))
-                Toggle("Gráficos via Metal para jogos (Direct3D 10/11)", isOn: Binding(
+                Toggle("Metal Graphics for Games (Direct3D 10/11)", isOn: Binding(
                     get: { model.dxmtOn }, set: { _ in model.toggleDXMT() }))
-                Toggle("Controles de jogo avançados (usa mais CPU)", isOn: Binding(
+                Toggle("Advanced Game Controllers", isOn: Binding(
                     get: { model.gamepadOn }, set: { _ in model.toggleGamepad() }))
                 Divider()
-                Button("Adicionar programa já instalado…") { if let u = Pick.existing() { model.addExisting(u) } }
-                Button("Abrir .exe e .msi sempre com o WinApps") { model.makeDefaultHandler() }
-                Button("Reparar o ambiente Windows (reinstala os componentes)") {
-                    model.installComponents([], label: "componentes do Windows")
+                Button("Add Installed Program…") { if let u = Pick.existing() { model.addExisting(u) } }
+                Button("Always Open .exe and .msi Files with WinApps") { model.makeDefaultHandler() }
+                Button("Repair Windows Environment (Reinstall Components)") {
+                    model.installComponents([], label: L("Windows components"))
                 }
-                Button("Configurações do Windows…") { Script.launch(["config"]) }
-                Button("Abrir pasta de registros (logs)") { NSWorkspace.shared.open(Paths.logs) }
+                Button("Windows Settings…") { Script.launch(["config"]) }
+                Button("Open Logs Folder") { NSWorkspace.shared.open(Paths.logs) }
             }
             Divider()
-            Button("Créditos e licenças") { Guide.showLicenses() }
+            Button("About WinApps") { About.show() }
         } label: { Image(systemName: "ellipsis.circle") }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-        .help("Mais opções")
+        .help("More Options")
     }
 
     @ViewBuilder var statusPill: some View {
@@ -913,11 +994,11 @@ struct ContentView: View {
             ProgressView().controlSize(.small)
         } else if let v = model.wineVersion {
             Circle().fill(Color.green).frame(width: 8, height: 8)
-                .help("Ambiente Windows pronto (motor \(v))")
+                .help(String(format: L("Windows environment ready (engine %@)"), v))
         } else {
             Button {
                 Task { _ = await model.setup() }
-            } label: { Label("Preparar o Windows", systemImage: "arrow.down.circle.fill") }
+            } label: { Label("Set Up Windows", systemImage: "arrow.down.circle.fill") }
             .buttonStyle(.bordered)
         }
     }
@@ -935,16 +1016,16 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     dropBanner
                     HStack(spacing: 10) {
-                        Text("Biblioteca").font(.title3.weight(.semibold))
-                        Text("\(model.library.count)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                        Text("Library").font(.title3.weight(.semibold))
+                        Text(verbatim: "\(model.library.count)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                         Spacer()
-                        if model.library.count > 6 { SearchField(text: $search.v, prompt: "Buscar na biblioteca").frame(width: 220) }
+                        if model.library.count > 6 { SearchField(text: $search.v, prompt: L("Search Library")).frame(width: 220) }
                         Button { NSWorkspace.shared.open(Paths.apps) } label: {
-                            Label("Ver em Aplicativos", systemImage: "arrow.up.forward.app")
+                            Label("Show in Applications", systemImage: "arrow.up.forward.app")
                         }.buttonStyle(.link).font(.callout)
                     }
                     if model.library.isEmpty {
-                        Text("Nenhum programa ainda. Arraste um para a faixa acima.")
+                        Text("No programs yet. Drag one onto the area above to get started.")
                             .foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.top, 30)
                     } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 118, maximum: 140), spacing: 14)], spacing: 14) {
@@ -973,12 +1054,12 @@ struct ContentView: View {
             Image(systemName: "arrow.down.app.fill")
                 .font(.system(size: 26)).foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Arraste um programa do Windows para cá").font(.callout.weight(.semibold))
-                Text("Instaladores (.msi, setup.exe) são instalados. Programas soltos — .exe, pasta ou .zip — são importados.")
+                Text("Drag a Windows program here").font(.callout.weight(.semibold))
+                Text("Installers (.msi, setup.exe) get installed. Standalone programs — an .exe, a folder or a .zip — get imported.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Escolher…") { if let u = Pick.program() { model.handle(u) } }
+            Button("Choose…") { if let u = Pick.program() { model.handle(u) } }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.accentColor.opacity(0.06)))
@@ -990,7 +1071,7 @@ struct ContentView: View {
         RoundedRectangle(cornerRadius: 16)
             .fill(Color.accentColor.opacity(0.12))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.accentColor, lineWidth: 3))
-            .overlay(Label("Solte para abrir no WinApps", systemImage: "arrow.down.doc.fill")
+            .overlay(Label("Drop to Open in WinApps", systemImage: "arrow.down.doc.fill")
                 .font(.title2.weight(.semibold)).foregroundStyle(Color.accentColor))
             .padding(10)
             .allowsHitTesting(false)
@@ -1037,10 +1118,10 @@ struct StorageView: View {
     }
     static func help(_ kind: Int) -> String {
         switch kind {
-        case 0: return "O motor que roda os programas do Windows (um só para todos)."
-        case 1: return "O Windows compartilhado por todos os programas: fontes, Visual C++, DirectX, .NET 4.8 e WebView2."
-        case 2: return "A pasta do programa dentro do ambiente Windows."
-        default: return "Arquivos temporários do Windows e downloads em cache. Podem ser apagados (botão Liberar)."
+        case 0: return L("The engine that runs Windows programs (one shared by all of them).")
+        case 1: return L("The Windows environment shared by all programs: fonts, Visual C++, DirectX, .NET 4.8 and WebView2.")
+        case 2: return L("The program’s folder inside the Windows environment.")
+        default: return L("Temporary Windows files and cached downloads. They can be deleted (Free Up button).")
         }
     }
     static func fmt(_ b: Int64) -> String { ByteCountFormatter.string(fromByteCount: b, countStyle: .file) }
@@ -1051,19 +1132,19 @@ struct StorageView: View {
         let progIndex: [UUID: Int] = Dictionary(uniqueKeysWithValues: items.filter { $0.kind == 2 }.enumerated().map { ($1.id, $0) })
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("Armazenamento").font(.title3.weight(.semibold))
+                Text("Storage").font(.title3.weight(.semibold))
                 if total > 0 {
-                    Text("WinApps ocupa \(Self.fmt(total))").font(.callout.weight(.medium))
-                    Text("· \(Self.fmt(model.storageFree)) livres no disco").font(.callout).foregroundStyle(.secondary)
+                    Text(String(format: L("WinApps uses %@"), Self.fmt(total))).font(.callout.weight(.medium))
+                    Text(String(format: L("· %@ available on disk"), Self.fmt(model.storageFree))).font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if model.storageLoading { ProgressView().controlSize(.small) }
                 if let junk = items.first(where: { $0.kind == 3 }) {
-                    Button("Liberar \(Self.fmt(junk.bytes))") { model.cleanUp() }
-                        .help("Fecha os programas Windows abertos e apaga temporários e downloads em cache")
+                    Button(String(format: L("Free Up %@"), Self.fmt(junk.bytes))) { model.cleanUp() }
+                        .help("Quits open Windows programs and deletes temporary files and cached downloads")
                 }
                 Button { model.loadStorage() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless).help("Recalcular")
+                    .buttonStyle(.borderless).help("Recalculate")
             }
             if total > 0 {
                 GeometryReader { geo in
@@ -1071,7 +1152,7 @@ struct StorageView: View {
                         ForEach(items) { it in
                             Rectangle().fill(color(it, progIndex[it.id] ?? 0))
                                 .frame(width: max(2, geo.size.width * CGFloat(it.bytes) / CGFloat(total) - 2))
-                                .help("\(it.name): \(Self.fmt(it.bytes))")
+                                .help(Text(verbatim: "\(it.name): \(Self.fmt(it.bytes))"))
                         }
                     }
                 }
@@ -1088,11 +1169,11 @@ struct StorageView: View {
                     }
                 }
             } else if model.storageLoading {
-                Text("Calculando…").font(.callout).foregroundStyle(.secondary)
+                Text("Calculating…").font(.callout).foregroundStyle(.secondary)
             }
         }
         .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
         .padding(.top, 8)
     }
 }
@@ -1148,24 +1229,24 @@ struct AppTile: View {
         .contentShape(Rectangle())
         .onHover { hoverFlag.on = $0 }
         .onTapGesture { model.open(app) }
-        .help("Abrir \(app.name) — clique com o botão direito para mais opções")
+        .help(String(format: L("Open %@ — Control-click for more options"), app.name))
         .contextMenu {
-            Button("Abrir") { model.open(app) }
-            Button("Mostrar arquivos do programa") {
+            Button("Open") { model.open(app) }
+            Button("Show Program Files") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: app.exe)])
             }
-            Button("Mostrar atalho em Aplicativos") {
+            Button("Show Shortcut in Applications") {
                 NSWorkspace.shared.activateFileViewerSelecting([app.id])
             }
             Divider()
-            Toggle("Menu na barra do Mac", isOn: Binding(
+            Toggle("Menus in the Mac Menu Bar", isOn: Binding(
                 get: { model.hasNativeMenu(app) },
                 set: { _ in model.toggleNativeMenu(app) }))
-            Toggle("Barra de título do Mac", isOn: Binding(
+            Toggle("Mac Title Bar", isOn: Binding(
                 get: { model.titleBar[app.id] ?? true },
                 set: { _ in model.toggleTitleBar(app) }))
             Divider()
-            Button("Remover da biblioteca", role: .destructive) { model.remove(app) }
+            Button("Remove from Library", role: .destructive) { model.remove(app) }
         }
     }
 }
@@ -1184,7 +1265,7 @@ struct PendingSheet: View {
                     .resizable().frame(width: 52, height: 52)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(file.url.lastPathComponent).font(.headline).lineLimit(1)
-                    Label(file.isInstaller ? "Instalador" : "Programa portátil (roda sem instalar)",
+                    Label(file.isInstaller ? L("Installer") : L("Portable program (runs without installing)"),
                           systemImage: file.isInstaller ? "shippingbox.fill" : "bolt.fill")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(file.isInstaller ? .blue : .purple)
@@ -1211,16 +1292,16 @@ struct PendingSheet: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill((c.broken ? Color.red : c.works ? Color.green : Color.orange).opacity(0.12)))
             }
             Text(file.isInstaller
-                 ? "O programa será instalado no WinApps: siga as telas do instalador normalmente. No fim, ele aparece na sua biblioteca e em Aplicativos."
-                 : "Ele será importado para o WinApps e ganhará um ícone na biblioteca e em Aplicativos.")
+                 ? L("The program will be installed in WinApps: follow the installer’s steps as usual. When it’s done, it appears in your library and in Applications.")
+                 : L("It will be imported into WinApps and get an icon in your library and in Applications."))
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if !file.needs.isEmpty {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "puzzlepiece.extension.fill").foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Este programa precisa de: \(file.needs.map(componentLabel).joined(separator: ", "))")
+                        Text(String(format: L("This program needs: %@"), file.needs.map(componentLabel).joined(separator: ", ")))
                             .font(.callout.weight(.medium))
-                        Toggle("Instalar antes de continuar (pode levar vários minutos)", isOn: $installNeeds.on)
+                        Toggle("Install before continuing (may take several minutes)", isOn: $installNeeds.on)
                             .font(.caption)
                     }
                 }
@@ -1228,15 +1309,15 @@ struct PendingSheet: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.10)))
             }
             HStack {
-                Button("Cancelar") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 if file.isInstaller {
-                    let b = Button(file.compat?.broken == true ? "Instalar mesmo assim" : "Instalar") {
+                    let b = Button(file.compat?.broken == true ? L("Install Anyway") : L("Install")) {
                         let u = file.url; model.withComponents(needs) { model.install(u) }; dismiss()
                     }
                     if file.compat?.broken == true { b } else { b.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent) }
                 } else {
-                    let b = Button(file.compat?.broken == true ? "Importar mesmo assim" : "Importar e abrir") {
+                    let b = Button(file.compat?.broken == true ? L("Import Anyway") : L("Import and Open")) {
                         let u = file.url; model.withComponents(needs) { model.adoptPortable(u, open: true) }; dismiss()
                     }
                     if file.compat?.broken == true { b } else { b.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent) }
@@ -1256,17 +1337,21 @@ struct CompatibilityView: View {
     // "-expand <nome>" ao abrir o app: linha já expandida (testes da interface)
     @StateObject private var expanded = Box(Set([UserDefaults.standard.string(forKey: "expand")].compactMap { $0 }))
 
-    static let order = ["Produtividade", "Jogos", "Utilitários", "Não suportados", "Por tecnologia"]
-    static let repoTable = URL(string: "https://github.com/matthfaria96/winapps/blob/master/COMPATIBILIDADE.md")!
+    /// Ordem dos grupos na tabela (categoria do topo do JSON; aceita os nomes antigos em português).
+    static let order: [String: Int] = [
+        "productivity": 0, "produtividade": 0,
+        "games": 1, "jogos": 1,
+        "utilities": 2, "utilitários": 2,
+        "not supported": 3, "unsupported": 3, "não suportados": 3,
+        "by technology": 4, "por tecnologia": 4,
+    ]
+    static let repoTable = URL(string: "https://github.com/matthfaria96/winapps/blob/master/"
+                                   + (UILang.isPT ? "COMPATIBILIDADE.md" : "COMPATIBILITY.md"))!
 
     static let all: [Compat] = {
-        guard let url = Bundle.main.url(forResource: "compat", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let rules = obj["rules"] as? [[String: Any]] else { return [] }
-        let list = rules.map(Compat.init(rule:))
+        let list = CompatDB.rules.map(Compat.init(rule:))
         return list.enumerated().sorted { a, b in
-            let ia = order.firstIndex(of: a.element.category) ?? 99, ib = order.firstIndex(of: b.element.category) ?? 99
+            let ia = order[a.element.categoryKey.lowercased()] ?? 99, ib = order[b.element.categoryKey.lowercased()] ?? 99
             return ia != ib ? ia < ib : a.offset < b.offset
         }.map(\.element)
     }()
@@ -1292,18 +1377,18 @@ struct CompatibilityView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                SearchField(text: $query.v, prompt: "Buscar programa, correção…").frame(width: 250)
-                Picker("", selection: $filter.v) {
-                    Text("Todos").tag(0)
-                    Text("Verificados").tag(1)
-                    Text("Funcionam").tag(2)
-                    Text("Não funcionam").tag(3)
+                SearchField(text: $query.v, prompt: L("Search programs or fixes")).frame(width: 250)
+                Picker("Filter", selection: $filter.v) {
+                    Text("All").tag(0)
+                    Text("Verified (filter)").tag(1)
+                    Text("Working").tag(2)
+                    Text("Not Working").tag(3)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 Spacer()
-                Text("\(rows.count) de \(Self.all.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Text(String(format: L("%ld of %ld"), rows.count, Self.all.count)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 Link(destination: Self.repoTable) { Image(systemName: "arrow.up.right.square") }
-                    .help("Abrir a tabela no GitHub (COMPATIBILIDADE.md)")
+                    .help("Open the full table on GitHub")
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
             Divider()
@@ -1311,15 +1396,15 @@ struct CompatibilityView: View {
             Divider()
             if rows.isEmpty {
                 VStack(spacing: 6) {
-                    Text("Nada encontrado").font(.headline)
-                    Text("Programas fora desta lista aparecem como Não testado: podem funcionar, só ninguém conferiu ainda.")
+                    Text("No Results").font(.headline)
+                    Text("Programs not on this list show up as Untested: they may work, nobody has checked yet.")
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: 420, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.name) { i, c in
+                        ForEach(Array(rows.enumerated()), id: \.element.key) { i, c in
                             row(c, odd: i % 2 == 1)
                         }
                     }
@@ -1331,7 +1416,7 @@ struct CompatibilityView: View {
                     Label(b.label, systemImage: b.symbol).foregroundStyle(b.color).help(b.help)
                 }
                 Spacer()
-                Text("Clique numa linha para ver detalhes").foregroundStyle(.tertiary)
+                Text("Click a row for details").foregroundStyle(.tertiary)
             }
             .font(.caption).padding(.horizontal, 16).padding(.vertical, 7)
         }
@@ -1340,18 +1425,18 @@ struct CompatibilityView: View {
     var headerRow: some View {
         HStack(spacing: 10) {
             Spacer().frame(width: 12, height: 1)
-            Text("Programa").frame(width: wName, alignment: .leading)
-            Text("Situação").frame(width: wBadge, alignment: .leading)
-            Text("Resumo").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Testado").frame(width: wDate, alignment: .leading)
-            Text("Correções").frame(width: wFix, alignment: .trailing)
+            Text("Program").frame(width: wName, alignment: .leading)
+            Text("Status").frame(width: wBadge, alignment: .leading)
+            Text("Summary").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Tested").frame(width: wDate, alignment: .leading)
+            Text("Fixes").frame(width: wFix, alignment: .trailing)
         }
         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         .padding(.horizontal, 16).padding(.vertical, 6)
     }
 
     func row(_ c: Compat, odd: Bool) -> some View {
-        let open = expanded.v.contains(c.name)
+        let open = expanded.v.contains(c.key) || expanded.v.contains(c.name)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
@@ -1359,15 +1444,15 @@ struct CompatibilityView: View {
                 HStack(spacing: 6) {
                     if let app = model.installed(c) {
                         Image(nsImage: app.icon).resizable().frame(width: 18, height: 18)
-                            .help("Na sua biblioteca")
+                            .help("In your library")
                     }
-                    Text(c.name).font(.callout.weight(.medium)).lineLimit(1).help(c.name)
+                    Text(c.name).font(.callout.weight(.medium)).lineLimit(1).help(Text(verbatim: c.name))
                 }
                 .frame(width: wName, alignment: .leading)
                 BadgeView(badge: c.badge, compact: true).frame(width: wBadge, alignment: .leading)
                 Text(c.summary).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(c.tested.isEmpty ? "—" : c.tested).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Text(c.tested.isEmpty ? "—" : CompatDB.displayDate(c.tested)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     .frame(width: wDate, alignment: .leading)
                 Text(c.fixes.isEmpty ? "—" : "\(c.fixes.count)").font(.caption.monospacedDigit())
                     .foregroundStyle(c.fixes.isEmpty ? Color.secondary : Color.green)
@@ -1377,7 +1462,7 @@ struct CompatibilityView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.easeOut(duration: 0.15)) {
-                    if open { expanded.v.remove(c.name) } else { expanded.v.insert(c.name) }
+                    if open { expanded.v.remove(c.key); expanded.v.remove(c.name) } else { expanded.v.insert(c.key) }
                 }
             }
             if open { details(c) }
@@ -1387,14 +1472,14 @@ struct CompatibilityView: View {
 
     func details(_ c: Compat) -> some View {
         Grid(alignment: .topLeading, horizontalSpacing: 14, verticalSpacing: 6) {
-            detail("Detalhes", c.why)
-            if !c.alt.isEmpty { detail("Dica", c.alt) }
+            detail(L("Details"), c.why)
+            if !c.alt.isEmpty { detail(L("Tip"), c.alt) }
             if !c.needs.isEmpty {
-                detail("Precisa de", c.needs.map(componentLabel).joined(separator: ", ") + " — já incluídos no WinApps")
+                detail(L("Needs"), String(format: L("%@ — already included in WinApps"), c.needs.map(componentLabel).joined(separator: ", ")))
             }
             if !c.fixes.isEmpty {
                 GridRow {
-                    Text("Correções").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Fixes").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(c.fixes, id: \.self) { f in
                             Label(f, systemImage: "wrench.and.screwdriver").font(.caption)
@@ -1402,7 +1487,7 @@ struct CompatibilityView: View {
                     }
                 }
             }
-            if !c.category.isEmpty { detail("Categoria", c.category) }
+            if !c.category.isEmpty { detail(L("Category"), c.category) }
         }
         .padding(.leading, 38).padding(.trailing, 16).padding(.bottom, 12).padding(.top, 2)
         .textSelection(.enabled)
@@ -1421,9 +1506,9 @@ struct CandidatesSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("Instalação concluída", systemImage: "checkmark.seal.fill")
+            Label("Installation Complete", systemImage: "checkmark.seal.fill")
                 .font(.title3.weight(.semibold)).foregroundStyle(.green)
-            Text("Marque o que deve aparecer na sua biblioteca (e em Aplicativos). Você pode mudar o nome.")
+            Text("Select what should appear in your library (and in Applications). You can change the names.")
                 .foregroundStyle(.secondary)
             VStack(spacing: 8) {
                 ForEach($model.candidates) { $c in
@@ -1431,7 +1516,7 @@ struct CandidatesSheet: View {
                         Toggle("", isOn: $c.selected).labelsHidden()
                         Image(nsImage: NSWorkspace.shared.icon(forFile: c.path)).resizable().frame(width: 28, height: 28)
                         VStack(alignment: .leading, spacing: 2) {
-                            TextField("Nome", text: $c.name).textFieldStyle(.roundedBorder)
+                            TextField("Name", text: $c.name).textFieldStyle(.roundedBorder)
                             Text(c.path.replacingOccurrences(of: Paths.driveC.path + "/", with: "C:/"))
                                 .font(.caption2).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
                         }
@@ -1439,9 +1524,9 @@ struct CandidatesSheet: View {
                 }
             }
             HStack {
-                Button("Agora não") { model.showCandidates = false }.keyboardShortcut(.cancelAction)
+                Button("Not Now") { model.showCandidates = false }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Adicionar à biblioteca") { model.addCandidates() }
+                Button("Add to Library") { model.addCandidates() }
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
                     .disabled(!model.candidates.contains(where: \.selected))
             }
@@ -1457,11 +1542,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in for u in urls { Model.shared.handle(u) } }
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // ganchos para capturas de tela: -WinAppsAppearance light|dark, -WinAppsShowAbout YES, -WinAppsShowGuide YES
+        switch UserDefaults.standard.string(forKey: "WinAppsAppearance")?.lowercased() {
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        default: break
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             for w in NSApp.windows where w.isVisible {
                 let onScreen = NSScreen.screens.contains { $0.visibleFrame.intersects(w.frame) }
                 if !onScreen { w.center() }
             }
+            let d = UserDefaults.standard
+            if d.bool(forKey: "WinAppsShowAbout") || d.bool(forKey: "WinAppsShowLicenses") { About.show() }
+            if d.bool(forKey: "WinAppsShowGuide") { Guide.show() }
         }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -1478,30 +1572,36 @@ struct WinAppsApp: App {
         .windowToolbarStyle(.unified(showsTitle: true))
         .defaultSize(width: 980, height: 660)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About WinApps") { About.show() }
+            }
             CommandGroup(replacing: .newItem) {
-                Button("Abrir programa do Windows…") { if let u = Pick.program() { Model.shared.handle(u) } }
+                Button("Open Windows Program…") { if let u = Pick.program() { Model.shared.handle(u) } }
                     .keyboardShortcut("o")
-                Button("Adicionar programa já instalado…") { if let u = Pick.existing() { Model.shared.addExisting(u) } }
+                Button("Add Installed Program…") { if let u = Pick.existing() { Model.shared.addExisting(u) } }
             }
             CommandGroup(replacing: .help) {
-                Button("Guia do WinApps") { Guide.show() }.keyboardShortcut("?")
+                Button("WinApps Guide") { Guide.show() }.keyboardShortcut("?")
             }
         }
     }
 }
 
-// MARK: - Guia (GUIA.md: o mesmo arquivo do repositório, embutido no app)
+// MARK: - Guia (GUIDE.md / GUIA.md: os mesmos arquivos do repositório, embutidos no app)
 
 enum Guide {
     static var windows: [String: NSWindow] = [:]
 
-    static func show() { show(resource: "GUIA", title: "Guia do WinApps") }
-    static func showLicenses() { show(resource: "LICENCAS", title: "Créditos e licenças") }
+    static func show() { show(resource: UILang.isPT ? "GUIA" : "GUIDE", fallback: UILang.isPT ? "GUIDE" : "GUIA", title: L("WinApps Guide")) }
+    static func showLicenses() {
+        show(resource: UILang.isPT ? "LICENCAS" : "LICENSES", fallback: UILang.isPT ? "LICENSES" : "LICENCAS", title: L("Credits and Licenses"))
+    }
 
-    static func show(resource: String, title: String) {
+    static func show(resource: String, fallback: String, title: String) {
         if let w = windows[resource] { w.makeKeyAndOrderFront(nil); return }
-        let text = Bundle.main.url(forResource: resource, withExtension: "md")
-            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "# \(title)\n\nArquivo não encontrado no app."
+        let url = Bundle.main.url(forResource: resource, withExtension: "md") ?? Bundle.main.url(forResource: fallback, withExtension: "md")
+        let text = url.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+            ?? "# \(title)\n\n" + L("File not found in the app.")
         let w = NSWindow(contentViewController: NSHostingController(rootView: GuideView(blocks: GuideBlock.parse(text))))
         w.title = title
         w.setContentSize(NSSize(width: 720, height: 760))
@@ -1509,6 +1609,178 @@ enum Guide {
         w.center()
         w.makeKeyAndOrderFront(nil)
         windows[resource] = w
+    }
+}
+
+// MARK: - Sobre (padrão dos apps do autor: ícone, nome, versão, descrição, licença, links)
+
+enum About {
+    static var window: NSWindow?
+
+    static func show() {
+        if let w = window { w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
+        let host = NSHostingController(rootView: AboutView())
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
+                         styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.contentViewController = host
+        w.setContentSize(NSSize(width: 560, height: 440))
+        w.title = L("About WinApps")
+        w.titleVisibility = .hidden
+        w.titlebarAppearsTransparent = true
+        w.isMovableByWindowBackground = true
+        w.isReleasedWhenClosed = false
+        w.center()
+        w.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        window = w
+    }
+
+    static var version: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "200"
+        return String(format: L("Version %@ (%@)"), short, build)
+    }
+}
+
+struct AboutView: View {
+    // "-WinAppsShowLicenses YES" ao abrir (capturas de tela): já mostra a folha de licenças
+    @StateObject private var showsLicenses: Flag = {
+        let f = Flag(); f.on = UserDefaults.standard.bool(forKey: "WinAppsShowLicenses"); return f
+    }()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+                .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+                .padding(.bottom, 18)
+            Text(verbatim: "WinApps")
+                .font(.system(size: 24, weight: .semibold))
+            Text(About.version)
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .padding(.top, 4)
+            Text("WinApps runs Windows programs on your Mac as real Mac apps — their own icon in the Dock, menus in the macOS menu bar, Mac window controls — with a compatibility engine kept up to date and fixes you won’t find anywhere else.")
+                .font(.system(size: 13))
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .frame(maxWidth: 460)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 26)
+            Text("WinApps is free software under the GNU GPL v3.0. It builds on the open-source projects listed in its licenses.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 460)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 14)
+            HStack(spacing: 18) {
+                Link(destination: URL(string: "http://witchmymac.com")!) { Text(verbatim: "witchmymac.com") }
+                Button("Open-source licenses") { showsLicenses.on = true }
+                    .buttonStyle(.link)
+            }
+            .font(.system(size: 12))
+            .padding(.top, 10)
+        }
+        .padding(.horizontal, 40)
+        .padding(.bottom, 12)
+        .frame(width: 560, height: 440)
+        .sheet(isPresented: $showsLicenses.on) { LicensesSheet() }
+    }
+}
+
+/// Projetos de código aberto do WinApps, cada um com a licença e o aviso.
+struct LicensesSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    struct Entry: Identifiable {
+        let name: String, license: String, notice: String
+        var id: String { name }
+    }
+
+    static let gplNotice = "This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details."
+    static let lgplNotice = "This library is free software; you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation; either version 2.1 of the License, or (at your option) any later version."
+    // texto da licença MIT: fica em inglês (a licença exige este aviso)
+    static let mitText = """
+        Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+        The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+        """
+
+    var entries: [Entry] {
+        [
+            Entry(name: "WinApps", license: "GPL-3.0",
+                  notice: "Copyright (C) 2026 Matheus Faria\n" + L("Source code:") + " https://github.com/matthfaria96/winapps\n\n" + L(Self.gplNotice)),
+            Entry(name: "Wine", license: "LGPL-2.1+",
+                  notice: "Copyright © 1993-2026 the Wine project authors\nhttps://www.winehq.org\n\n"
+                    + L("WinApps’ engine is based on Wine. WinApps’ engine patches are also licensed under LGPL-2.1 or later; their source code is in patches/ and programas/*/patches/ and they are built by engine/build-engine.sh.")
+                    + "\n\n" + L(Self.lgplNotice)),
+            Entry(name: "Wine Staging", license: "LGPL-2.1+",
+                  notice: "Copyright © the Wine Staging contributors\nhttps://gitlab.winehq.org/wine/wine-staging\n\n"
+                    + L("Patch set on top of Wine, used by WinApps’ engine.") + "\n\n" + L(Self.lgplNotice)),
+            Entry(name: "Gcenx macOS Wine builds", license: "LGPL-2.1+",
+                  notice: "Copyright © Gcenx and the Wine project authors\nhttps://github.com/Gcenx/macOS_Wine_builds\n\n"
+                    + L("macOS packaging of Wine and Wine Staging that WinApps’ engine is built from.")),
+            Entry(name: "DXMT", license: "MIT",
+                  notice: "Copyright (c) 2023 Feifan He\nhttps://github.com/3Shain/dxmt\n\n"
+                    + L("Direct3D 10/11 to Metal translation. WinApps’ modifications are in patches/dxmt/ and are built by engine/build-dxmt.sh.")
+                    + "\n\n" + Self.mitText),
+            Entry(name: "winetricks", license: "LGPL-2.1+",
+                  notice: "Copyright © the winetricks authors\nhttps://github.com/Winetricks/winetricks\n\n"
+                    + L("Downloads and installs Windows components (fonts, Visual C++, .NET and others).") + "\n\n" + L(Self.lgplNotice)),
+            Entry(name: "cabextract", license: "GPL-2.0+",
+                  notice: "Copyright © Stuart Caie\nhttps://www.cabextract.org.uk\n\n"
+                    + L("Extracts Microsoft cabinet (.cab) files. This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.")),
+            Entry(name: "Microsoft components", license: L("Microsoft licenses"),
+                  notice: L("The .NET Framework, Visual C++, WebView2 and the Windows SDK metadata are downloaded from Microsoft’s websites on your Mac, under Microsoft’s licenses. WinApps does not redistribute them.")),
+        ]
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Open-Source Licenses").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("WinApps is built on these open-source projects. Their licenses ask that the notices below accompany the app and that the source code of modified versions be available.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(entries) { e in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(e.name == "Microsoft components" ? L("Microsoft components") : e.name)
+                                    .font(.callout.weight(.semibold))
+                                Spacer()
+                                Text(e.license).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                            }
+                            Text(e.notice)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color.secondary.opacity(0.10)))
+                        }
+                    }
+                    Button("Show Full Credits Document") { Guide.showLicenses() }
+                        .buttonStyle(.link).font(.callout)
+                }
+                .padding(16)
+            }
+        }
+        .frame(width: 520, height: 400)
     }
 }
 
@@ -1599,5 +1871,20 @@ struct GuideView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
         }
+    }
+}
+
+
+extension CompatDB {
+    /// Datas do compat.json vêm como "07/11/2026" (dia/mês/ano): mostra no formato do idioma do app
+    /// ("Nov 7, 2026" em inglês, "07/11/2026" em português).
+    static func displayDate(_ s: String) -> String {
+        let p = DateFormatter(); p.locale = Locale(identifier: "en_US_POSIX"); p.dateFormat = "dd/MM/yyyy"
+        guard let d = p.date(from: s) else { return s }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        f.dateStyle = UILang.isPT ? .short : .medium; f.timeStyle = .none
+        if UILang.isPT { f.dateFormat = "dd/MM/yyyy" }
+        return f.string(from: d)
     }
 }

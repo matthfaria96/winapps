@@ -90,6 +90,16 @@ app: ⋯ → Créditos e licenças) e em nomes internos de arquivos/módulos.
 
 ## ESTADO ATUAL (07/11/2026, 5ª sessão) — vale mais que o histórico abaixo
 
+- **08/11 — WinApps 2.0.0, inglês primeiro (pt-BR 2º idioma):** app SwiftUI com textos em inglês e
+  `winapps/Resources/pt-BR.lproj/Localizable.strings` (chave = texto em inglês; `L()` para strings montadas).
+  Script: `t 'en' 'pt'` + `WINAPPS_UI_LANG` (o app passa; sem ela, AppleLanguages). `compat.json`: campos em
+  inglês + objeto `"pt"`; `compat-md.py` gera COMPATIBILITY.md e COMPATIBILIDADE.md. Docs: GUIDE/GUIA,
+  LICENSES/LICENCAS, README/README.pt-BR. Ambientes novos seguem o idioma do Mac; os antigos ficam (LocaleName).
+  Sobre no padrão witchmymac (GPL-3.0, `LICENSE`). Ganchos de captura: `-WinAppsTab N -WinAppsAppearance dark
+  -WinAppsShowAbout YES -WinAppsShowGuide YES -WinAppsFilesMac <pasta> -WinAppsFilesWin Portable`, com
+  `-AppleLanguages '(en)' -AppleLocale en_US -ApplePersistenceIgnoreState YES`. Release: `sh winapps/package-release.sh`
+  → `winapps/build/release/WinApps-<versão>.dmg` (release no GitHub matthfaria96/winapps). Site: witchmymac/winapps/.
+
 - **RubinOT (08/11): 🟡 Parcial** no compat.json — joga bem, mas a sessão cai (~7 min, canal do
   launcher ausente); `watchdog.sh` reabre. Detalhes: `programas/rubinot/README.md`.
 

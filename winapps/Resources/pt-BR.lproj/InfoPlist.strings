@@ -1,0 +1,5 @@
+/* Nomes do Info.plist em português (Finder: "Tipo", Obter Informações). */
+"NSHumanReadableCopyright" = "Copyright © 2026 Matheus Faria. Software livre sob a GNU GPL v3.0.";
+"Windows Program" = "Programa do Windows";
+"Windows Program Archive or Folder" = "Programa do Windows compactado ou em pasta";
+"Windows Installer" = "Instalador do Windows";

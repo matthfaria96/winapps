@@ -8,3 +8,4 @@
 winapps/vendor/
 __pycache__/
 *.pyc
+winapps/build/

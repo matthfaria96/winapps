@@ -1,3 +1,5 @@
+[English](COMPATIBILITY.md) · **Português**
+
 # Compatibilidade do WinApps
 
 **6 programas funcionando**, 2 verificados com correções próprias.  
@@ -19,7 +21,7 @@
 | [Microsoft Teams](#microsoft-teams) | ❌ Não funciona | Não suportados | — | Pacote MSIX da Microsoft Store não instala | — |
 | [Microsoft Office (365 / 2016 ou mais novo)](#microsoft-office-365-2016-ou-mais-novo) | ❌ Não funciona | Não suportados | — | Instalador Click-to-Run não funciona | — |
 | [Adobe Creative Cloud / Photoshop / Premiere](#adobe-creative-cloud-photoshop-premiere) | ❌ Não funciona | Não suportados | — | Depende de serviços e GPU não reproduzidos | — |
-| [Jogo com proteção de kernel](#jogo-com-prote-o-de-kernel) | ❌ Não funciona | Por tecnologia | — | Anti-cheat de kernel exige um Windows real | — |
+| [Jogo com proteção de kernel](#jogo-com-prote-o-de-kernel) | ❌ Não funciona | Por tecnologia | — | Proteção de kernel exige um Windows real | — |
 | [Programa com navegador embutido (WebView2)](#programa-com-navegador-embutido-webview2) | 🟢 Funciona | Por tecnologia | — | WebView2 já incluso e desenhado pelo Metal | — |
 | [Jogo em Direct3D 12](#jogo-em-direct3d-12) | 🟡 Parcial | Por tecnologia | — | Sem Direct3D 12; use o modo Direct3D 11 do jogo | — |
 
