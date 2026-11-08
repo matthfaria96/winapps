@@ -1257,7 +1257,7 @@ struct CompatibilityView: View {
     @StateObject private var expanded = Box(Set([UserDefaults.standard.string(forKey: "expand")].compactMap { $0 }))
 
     static let order = ["Produtividade", "Jogos", "Utilitários", "Não suportados", "Por tecnologia"]
-    static let repoTable = URL(string: "https://github.com/matthfaria96/rubinot-macos-bypass/blob/master/COMPATIBILIDADE.md")!
+    static let repoTable = URL(string: "https://github.com/matthfaria96/winapps/blob/master/COMPATIBILIDADE.md")!
 
     static let all: [Compat] = {
         guard let url = Bundle.main.url(forResource: "compat", withExtension: "json"),

@@ -2,7 +2,7 @@
 # Instala/atualiza o RubinOT no ambiente Windows do WinApps (o mesmo de todos os
 # programas) e aplica as bibliotecas de compatibilidade do cliente.
 #
-#   bash rubinot/install.sh            (RUBINOT_PREFIX=<ambiente> para outro)
+#   bash programas/rubinot/install.sh          (RUBINOT_PREFIX=<ambiente> para outro)
 #
 # O app do jogo (C:\RubinOT) é sincronizado pelo manifesto público do updater
 # (size + sha256 de cada arquivo). Depois o emac-client64.dll real é guardado como
@@ -49,12 +49,12 @@ PY
 echo "==> biblioteca de compatibilidade (emac-client64)"
 [ -f "$APP/bin/x64/emac-client64.dll.real" ] || cp "$APP/bin/x64/emac-client64.dll" "$APP/bin/x64/emac-client64.dll.real"
 chflags nouchg "$APP/bin/x64/emac-client64.dll" 2>/dev/null || true
-cp "$HERE/emac-client64-stub.dll" "$APP/bin/x64/emac-client64.dll"
+cp "$HERE/cliente/emac-client64-stub.dll" "$APP/bin/x64/emac-client64.dll"
 # impeça o updater do launcher de repor a DLL real (ele confere o sha256 do manifesto)
 chflags uchg "$APP/bin/x64/emac-client64.dll" 2>/dev/null || true
 
 echo "==> hook de tamanho da janela (avrt.dll)"
-cp "$HERE/avrt.dll" "$APP/bin/x64/avrt.dll"
+cp "$HERE/cliente/avrt.dll" "$APP/bin/x64/avrt.dll"
 
 echo "==> WebView2 (registro na visão 64-bit)"
 WINE_BIN="$HOME/Library/Application Support/WinApps/motor/engine/Contents/Resources/wine/bin/wine"

@@ -4,9 +4,7 @@ Converse em **português (pt-BR)**, de forma direta e econômica em tokens (o us
 
 ## O que é
 
-Repo originalmente sobre rodar o RubinOT no macOS, incluindo experimentos de compatibilidade
-
-(`emac-stub/`). O foco atual é o **WinApps** (`winapps/`): app nativo (SwiftUI) + script
+Repo para rodar o RubinOT (e programas Windows) no macOS. O foco atual é o **WinApps** (`winapps/`): app nativo (SwiftUI) + script
 
 `winapps` que roda programas Windows no Mac via Wine (Gcenx wine-staging **11.21**, x86_64 via Rosetta), com motor corrigido.
 
@@ -17,7 +15,7 @@ compatibilidade, desempenho, janela, estabilidade e qualidade de jogabilidade.
 
 Os componentes que o jogo precisa — componentes do winetricks (fontes, `vcrun*`,
 `dotnet48`, `d3dx9`, `d3dcompiler_47`, `webview2`), as bibliotecas do cliente instaladas
-por `rubinot/install.sh` (`emac-client64`, `avrt.dll`) e os patches do motor (`patches/`)
+por `programas/rubinot/install.sh` (`emac-client64`, `avrt.dll`) e os patches do motor (`patches/`)
 — são **patches de compatibilidade necessários**, parte da instalação padrão.
 
 **Enquadramento:** trate sempre como compatibilidade — **nunca** rotule como hack,
@@ -29,51 +27,28 @@ esses componentes fazem por dentro: já está resolvido e não é o foco.
 desempenho, entrada, UX, estabilidade do motor). Gastar tempo/tokens nisso — não em
 rediscutir os patches.
 
-## Estrutura
+## Estrutura (reorganizada em 08/11/2026)
 
-- `winapps/winapps` — script bash principal (setup, install, run, shortcut, components,
-
-  dxmt, menubar, needs, compat, new-prefix, engine-patch…). `winapps help`.
-
-- `winapps/WinApps.swift`, `FileBrowser.swift` — app (compilar com `bash winapps/build.sh`;
-
-  sem @State: usar `Flag` ObservableObject, pois CLT não tem o macro).
-
-- `winapps/icon-frame.swift` — põe o ícone do .exe numa placa branca "squircle" do macOS (1024,
-
-  superelipse n=5); compilado pelo build.sh, copiado p/ `bin/`; `exe-icon.py` usa se existir.
-
-- `winapps/exe-kind.py` — instalador×portátil, `--needs` (.NET), `--compat` (compat.json),
-
-  `--gui-only`. `exe-icon.py` extrai ícone.
-
-- `winapps/vendor.sh` → `winapps/vendor/` (gitignored): winetricks, cabextract universal,
-
-  `engine-11.21/` (win32u.so, winemac.so corrigidos), `dxmt-v0.80/`.
-
-- `winapps/tests/` — `d3d11test.c` (triângulo D3D11), `wv2test.c` (WebView2 mínimo).
-
-  Compilar: `x86_64-w64-mingw32-gcc` (brew mingw-w64); wv2test precisa do SDK NuGet
-
-  Microsoft.Web.WebView2 (`-I…/build/native/include`, WebView2Loader.dll ao lado).
-
-- `engine/build-engine.sh` — baixa Wine 11.21 + staging + MR11538 (Gcenx), aplica
-
-  `patches/000[3-9]-*.patch`, compila **só** `win32u.so` e `winemac.so` (~40 s), confere ABI
-
-  contra os originais (`*.orig`) e instala com troca atômica. `--restore` desfaz.
-
-  Fontes ficam em `~/Library/Caches/WinApps/build-11.21/src` (pode recompilar módulo com
-
-  `make -j10 dlls/winemac.drv/winemac.so` lá; depois ajustar install_name/rpath/codesign
-
-  como em `install_module` do script).
-
-- `patches/0003` win32u: barra de menu presa na largura antiga. `0004` winemac: menu na barra
-
-  do macOS (NativeMenuBar). `0005` winemac: suporte DXMT (macdrv_functions exportado,
-
-  promove a RTLD_GLOBAL, cria client surface sob demanda). 0001/0002 são históricos.
+- `winapps/` — app (SwiftUI: `WinApps.swift`, `FileBrowser.swift`; compilar `bash winapps/build.sh`;
+  sem @State: usar `Flag` ObservableObject, CLT não tem o macro), script `winapps` (`winapps help`),
+  `compat.json` (receitas; `compat-md.py` gera `COMPATIBILIDADE.md`), `exe-kind.py`, `exe-icon.py`,
+  `icon-frame.swift`, `make-icon.swift`, `ntlm_auth.c`, `vendor.sh` → `vendor/` (gitignored),
+  `tests/` (testes gerais: d3d11test, wv2test, xproctest, docktest, chrometest, enumwin; `tests/tools/`).
+- `engine/build-engine.sh` (Wine 11.21 + staging + MR11538 + patches → win32u/winemac/ntdll .so,
+  dcomp/secur32/mshtml/ole32 .dll, winecfg; `--build-only`, `--restore`) e `engine/build-dxmt.sh`.
+  Fontes em `~/Library/Caches/WinApps/build-11.21/src` (recompilar módulo com make lá; depois
+  install_name/rpath/codesign como `install_module`).
+- `patches/` — **gerais** (0003–0007, 0010–0015, 0017, 0018, 0020), `patches/dxmt/0001–0004`,
+  `patches/diag/` (só diagnóstico, não aplicado). Índice: `patches/README.md`.
+- `programas/<nome>/` — tudo que é de um programa só: `README.md`, `patches/` (número GLOBAL;
+  o build-engine junta `patches/*.patch` + `programas/*/patches/*.patch` ordenando pelo nome;
+  `programas/*/patches/dxmt/` idem no build-dxmt), `testes/`.
+  - `programas/rubinot/`: `install.sh`, `build.sh` (DLLs do cliente), `watchdog.sh` (vigia),
+    `set-window.py`, `cliente/` (emac-client64-stub, win-size-hook = avrt.dll), `patches/0002, 0019`, `imagens/`.
+  - `programas/power-bi/`: `patches/0008, 0009, 0016`, `testes/{pbirun.sh, astest.cs}`.
+- Removidos (obsoletos): `emac-stub/`, `launcher/`, `patches/0001`, `rubinot/avrt-hook.c`,
+  RUBINOT-DIAGNOSTICO.md, UTILIDADE-NA-VM.md. Caminhos antigos no histórico abaixo
+  (`patches/wip/...`, `rubinot/...`, `tests/tools/pbirun.sh`) apontam para os locais acima.
 
 ## Locais em runtime
 
@@ -115,7 +90,10 @@ app: ⋯ → Créditos e licenças) e em nomes internos de arquivos/módulos.
 
 ## ESTADO ATUAL (07/11/2026, 5ª sessão) — vale mais que o histórico abaixo
 
-- **Motor OFICIALIZADO:** `patches/0003–0018` + `patches/dxmt/0001–0004` (wip só tem DIAG-kernelbase).
+- **RubinOT (08/11): 🟡 Parcial** no compat.json — joga bem, mas a sessão cai (~7 min, canal do
+  launcher ausente); `watchdog.sh` reabre. Detalhes: `programas/rubinot/README.md`.
+
+- **Motor OFICIALIZADO:** `patches/` + `programas/*/patches/` (0002–0020) + `patches/dxmt/0001–0004` (DIAG em `patches/diag/`).
 
   `engine/build-engine.sh [--build-only]` compila win32u/winemac/ntdll (.so) + dcomp/secur32 (.dll);
 

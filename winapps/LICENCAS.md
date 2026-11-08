@@ -11,7 +11,7 @@ O motor do WinApps é baseado no **Wine** (<https://www.winehq.org>), com as cor
 
 - Copyright © 1993-2026 the Wine project authors.
 - Licença: GNU Lesser General Public License, versão 2.1 ou posterior (LGPL-2.1+).
-- As modificações do WinApps estão em `patches/` (motor) e são compiladas por
+- As modificações do WinApps estão em `patches/` e `programas/*/patches/` (motor) e são compiladas por
   `engine/build-engine.sh`, sob a mesma licença.
 
 ## Gráficos (Direct3D → Metal)

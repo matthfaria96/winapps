@@ -10,7 +10,7 @@ import sys
 import os
 
 W, H = int(sys.argv[1]), int(sys.argv[2])
-prefix = os.environ.get("WINEPREFIX", "/Volumes/WinAppsDev/prefixes/rubinot")
+prefix = os.environ.get("WINEPREFIX", os.path.expanduser("~/Library/Application Support/WinApps/prefixes/default"))
 path = os.path.join(prefix, "drive_c", "RubinOT", "bin", "config.otml")
 
 text = ""

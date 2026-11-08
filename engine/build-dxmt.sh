@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compila o DXMT (Direct3D 10/11 -> Metal) com as correções do WinApps (patches/dxmt):
+# Compila o DXMT (Direct3D 10/11 -> Metal) com as correções do WinApps (patches/dxmt e programas/*/patches/dxmt):
 #   0001  build sem o compilador Metal (usa o metallib do pacote oficial, embutido)
 #   0002  swapchains de composição (CreateSwapChainForComposition), usadas pelo
 #         Chromium/WebView2 via DirectComposition (com o patch 0007 do motor)
@@ -32,7 +32,8 @@ say "Baixando o DXMT v${VER}…"
 rm -rf src build out
 git clone -q --branch "v${VER}" --depth 1 --recurse-submodules --shallow-submodules \
     https://github.com/3Shain/dxmt.git src
-for p in "$HERE"/patches/dxmt/*.patch; do
+for p in $(for f in "$HERE"/patches/dxmt/*.patch "$HERE"/programas/*/patches/dxmt/*.patch; do
+               [ -f "$f" ] && printf '%s %s\n' "$(basename "$f")" "$f"; done | sort | cut -d' ' -f2-); do
     say "Aplicando $(basename "$p")"
     git -C src apply "$p" || die "patch não aplicou: $p"
 done

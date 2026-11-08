@@ -1,6 +1,6 @@
 # Compatibilidade do WinApps
 
-**7 programas funcionando**, 3 verificados com correções próprias.  
+**6 programas funcionando**, 2 verificados com correções próprias.  
 ✅ Verificado = testado de ponta a ponta, com correções do WinApps · 🟢 Funciona = testado ·
 🟡 Parcial · ❌ Não funciona · fora da tabela = ⚪ Não testado.
 
@@ -10,7 +10,7 @@
 | Programa | Situação | Categoria | Testado | Resumo | Correções |
 |---|---|---|---|---|:---:|
 | [Power BI Desktop](#power-bi-desktop) | ✅ Verificado | Produtividade | 07/11/2026 | Relatórios, Power Query, Analysis Services e visuais | 4 |
-| [RubinOT](#rubinot) | ✅ Verificado | Jogos | 08/11/2026 | Login e jogo; janela redimensionável; X fecha | 4 |
+| [RubinOT](#rubinot) | 🟡 Parcial | Jogos | 08/11/2026 | Joga bem, mas a sessão cai de vez em quando (reabre sozinho) | 5 |
 | [Notepad++](#notepad) | ✅ Verificado | Utilitários | 07/11/2026 | Editar e salvar; menus na barra do Mac | 2 |
 | [7-Zip](#7-zip) | 🟢 Funciona | Utilitários | 07/11/2026 | Abre; nome no Dock; menus na barra do Mac | — |
 | [SumatraPDF](#sumatrapdf) | 🟢 Funciona | Utilitários | 07/11/2026 | Abre PDFs; barra do Mac automática | 1 |
@@ -19,7 +19,7 @@
 | [Microsoft Teams](#microsoft-teams) | ❌ Não funciona | Não suportados | — | Pacote MSIX da Microsoft Store não instala | — |
 | [Microsoft Office (365 / 2016 ou mais novo)](#microsoft-office-365-2016-ou-mais-novo) | ❌ Não funciona | Não suportados | — | Instalador Click-to-Run não funciona | — |
 | [Adobe Creative Cloud / Photoshop / Premiere](#adobe-creative-cloud-photoshop-premiere) | ❌ Não funciona | Não suportados | — | Depende de serviços e GPU não reproduzidos | — |
-| [Jogo com proteção de kernel](#jogo-com-prote-o-de-kernel) | ❌ Não funciona | Por tecnologia | — | Proteção de kernel exige um Windows real | — |
+| [Jogo com proteção de kernel](#jogo-com-prote-o-de-kernel) | ❌ Não funciona | Por tecnologia | — | Anti-cheat de kernel exige um Windows real | — |
 | [Programa com navegador embutido (WebView2)](#programa-com-navegador-embutido-webview2) | 🟢 Funciona | Por tecnologia | — | WebView2 já incluso e desenhado pelo Metal | — |
 | [Jogo em Direct3D 12](#jogo-em-direct3d-12) | 🟡 Parcial | Por tecnologia | — | Sem Direct3D 12; use o modo Direct3D 11 do jogo | — |
 
@@ -41,11 +41,11 @@ Funciona no motor do WinApps (testado em 07/11/2026): relatórios, Power Query, 
 
 </details>
 
-<details id="rubinot"><summary><b>RubinOT</b> — ✅ Verificado</summary>
+<details id="rubinot"><summary><b>RubinOT</b> — 🟡 Parcial</summary>
 
-Testado em 08/11/2026: login, personagem no mapa, chat, inventário, loja e Battle Pass. A janela pode ser redimensionada à vontade (o jogo escala junto) e o X fecha o jogo.
+Testado em 08/11/2026: login, personagem no mapa, chat, inventário, loja e Battle Pass. A janela pode ser redimensionada à vontade (o jogo escala junto) e o X fecha o jogo. A sessão ainda cai de vez em quando (o cliente fecha sozinho); o vigia instalado com o jogo reabre o cliente automaticamente.
 
-💡 Use o atalho RubinOT.app; o launcher não é necessário. A instalação usa a receita do WinApps (rubinot/install.sh).
+💡 Use o atalho RubinOT.app; o launcher não é necessário. A instalação usa a receita do WinApps (programas/rubinot/install.sh). Para não reabrir sozinho: crie o arquivo .rubinot-sem-vigia no ambiente.
 
 **Precisa de:** WebView2 (já incluídos no ambiente do WinApps)
 
@@ -54,6 +54,7 @@ Testado em 08/11/2026: login, personagem no mapa, chat, inventário, loja e Batt
 - Janela com escala + X fecha
 - Minimizar sem perder imagem
 - Direct3D 11 pelo Metal
+- Reabre sozinho se a sessão cair
 
 </details>
 

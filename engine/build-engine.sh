@@ -1,24 +1,27 @@
 #!/bin/bash
 # Recompila os módulos do motor (Wine Staging 11.21 do Gcenx) que têm correções
-# nossas em patches/ e troca no WinApps, guardando os originais (*.orig).
+# nossas e troca no WinApps, guardando os originais (*.orig).
+# Patches: gerais em patches/ e de cada programa em programas/<nome>/patches/; são
+# aplicados todos juntos, na ordem do número (0002…0020), não importa a pasta.
 #
-#   0002  ole32.dll   RevokeDragDrop em janela de outro processo (RubinOT 32-bit x WebView2 64-bit)
+#   0002  ole32.dll   [rubinot] RevokeDragDrop em janela de outro processo (RubinOT 32-bit x WebView2 64-bit)
 #   0003  win32u.so   barra de menu presa na largura antiga (Notepad++ com 2 itens por linha)
 #   0004  winemac.so  menu do programa na barra de menus do macOS (opção NativeMenuBar)
 #   0005  winemac.so  tabela macdrv_functions para o DXMT (Direct3D 10/11 -> Metal)
 #   0006  win32u/winemac  janelas-filhas de OUTRO processo (WebView2: CAContext/CALayerHost)
 #   0007  dcomp.dll   DirectComposition liga swapchains de composição do DXMT à janela
-#   0008  ntdll.so    NtImpersonateAnonymousToken + memória real no macOS (Power BI/msmdsrv)
-#   0009  secur32.dll Impersonate/Revert/QuerySecurityContextToken (login Windows local)
+#   0008  ntdll.so    [power-bi] NtImpersonateAnonymousToken + memória real no macOS (Power BI/msmdsrv)
+#   0009  secur32.dll [power-bi] Impersonate/Revert/QuerySecurityContextToken (login Windows local)
 #   0010  winemac.so  filhas remotas acompanham mudanças/reparent da janela-mãe
 #   0011  winemac.so  processos auxiliares (ex.: WebView2) sem ícone próprio no Dock
 #   0012  winemac.so  filhas remotas empilhadas na ordem do Windows (várias WebViews sobrepostas)
 #   0013  winemac.so  compõe as filhas remotas mesmo sem a janela estar ativa (tela cinza)
 #   0014  winemac.so  janelas com barra própria: sombra, redimensionar/encaixar no Mac, soltar maximizada
 #   0015  winemac.so  barra de título do Mac sobre a barra própria + menus do programa por receita
-#   0016  mshtml.dll  zoom pedido pelo programa relativo à escala de DPI do Gecko (login do Power BI cortado)
+#   0016  mshtml.dll  [power-bi] zoom pedido pelo programa relativo à escala de DPI do Gecko (login do Power BI cortado)
 #   0017  ntdll.so    nomes próprios (WinApps/WinApps Server), motor como executável do app, idioma
 #   0018  winecfg.exe título "Configurações do Windows"
+#   0019  winemac.so  [rubinot] minimizar o RubinOT esconde o app (o cliente perde a imagem)
 #   0020  winemac.so  superfície do DXMT acompanha o tamanho da janela; imagem esticada (RubinOT)
 #
 # Uso:  bash engine/build-engine.sh               # compila e instala
@@ -85,8 +88,9 @@ tar xzf "staging-$VER.tar.gz"
 python3 "wine-staging-$VER/staging/patchinstall.py" --all -d "$WORK/src" >staging.log 2>&1 \
     || die "falha ao aplicar o Wine Staging (veja $WORK/staging.log)"
 ( cd src && patch -p1 --forward <"$WORK/mr11538.patch" >/dev/null )
-for p in "$HERE"/patches/000[2-9]-*.patch "$HERE"/patches/00[1-9][0-9]-*.patch; do
-    [ -f "$p" ] || continue
+# patches/NNNN-*.patch + programas/*/patches/NNNN-*.patch, ordenados pelo nome do arquivo
+for p in $(for f in "$HERE"/patches/[0-9][0-9][0-9][0-9]-*.patch "$HERE"/programas/*/patches/[0-9][0-9][0-9][0-9]-*.patch; do
+               [ -f "$f" ] && printf '%s %s\n' "$(basename "$f")" "$f"; done | sort | cut -d' ' -f2-); do
     say "Aplicando $(basename "$p")"
     ( cd src && patch -p1 --forward <"$p" >/dev/null ) || die "patch não aplicou: $p"
 done

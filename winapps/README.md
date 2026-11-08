@@ -33,7 +33,7 @@ Na primeira vez, **Preparar o Windows** (ou `winapps setup`) faz o seguinte:
 5. instala o ambiente base: fontes, Visual C++ 2008–2022, d3dx9, d3dcompiler_47,
    .NET Framework 4.8 (pré-compilado), metadados WinRT e WebView2 — tudo o que os programas
    testados precisam. **Um único ambiente para todos os programas** (nada é replicado);
-   receitas de programas (ex.: `rubinot/install.sh`) só acrescentam o que é deles.
+   receitas de programas (ex.: `programas/rubinot/install.sh`) só acrescentam o que é deles.
 
 ### O que vai dentro do app
 
@@ -55,7 +55,9 @@ que é de onde os atalhos usam.
 
 ## Correções no motor
 
-Ficam em [`../patches/`](../patches/) e são aplicadas pelo `engine/build-engine.sh` sobre o
+Gerais em [`../patches/`](../patches/); as que só um programa usa ficam em
+`../programas/<nome>/patches/` (coluna "Pasta"). O `engine/build-engine.sh` aplica todas na
+ordem do número, sobre o
 código-base do motor (versão 11.21, ver LICENCAS.md). Ele confere que os módulos novos exportam
 as mesmas funções e ligam nas mesmas bibliotecas que os originais.
 
@@ -66,17 +68,20 @@ as mesmas funções e ligam nas mesmas bibliotecas que os originais.
 | `0005` | winemac | tabela `macdrv_functions` para o DXMT |
 | `0006` | win32u, winemac | janela-filha de **outro processo** (WebView2): a filha publica um `CAContext` (GDI ou Metal) e o processo dono da janela mostra com `CALayerHost` |
 | `0007` | dcomp | DirectComposition liga a swapchain de composição do DXMT à janela |
-| `0008` | ntdll | `NtImpersonateAnonymousToken` e uso de memória real no macOS (Analysis Services) |
-| `0009` | secur32 | `ImpersonateSecurityContext` / `RevertSecurityContext` / `QuerySecurityContextToken` |
+| `0008` | ntdll (power-bi) | `NtImpersonateAnonymousToken` e uso de memória real no macOS (Analysis Services) |
+| `0009` | secur32 (power-bi) | `ImpersonateSecurityContext` / `RevertSecurityContext` / `QuerySecurityContextToken` |
 | `0010` | winemac | filhas remotas acompanham mudanças e troca de janela-mãe dos ancestrais |
 | `0011` | winemac | processos auxiliares sem ícone próprio no Dock (`GroupHelperProcesses=n` desliga) |
 | `0012` | winemac | filhas remotas empilhadas na ordem de pintura do Windows |
 | `0013` | winemac | compõe as filhas remotas assim que a janela aparece (antes: só quando ficava ativa → tela cinza) |
 | `0014` | winemac | programas com barra de título própria: sombra e redimensionamento do Mac, Janela → Preencher/lado a lado, arrastar a barra de janela maximizada a solta, soltar no topo maximiza e nas bordas encaixa na metade |
 | `0015` | winemac | barra de título do Mac desenhada por cima da barra própria do programa (altura medida com `WM_NCHITTEST`), botões nativos, arrastar/duplo clique, menu Janela → "Mostrar a Barra do Programa"; menus do programa por receita (`MacMenu`, de `mac_menu` no `compat.json`) que apertam os atalhos dele; opção `MacTitleBar` (`winapps titlebar`) |
-| `0016` | mshtml | o zoom que programas com DPI alto pedem ao HTML (ex.: 200% no Retina) passa a ser relativo à escala que o Gecko já aplica; antes ficava 4× e telas como o login do Power BI saíam cortadas |
+| `0016` | mshtml (power-bi) | o zoom que programas com DPI alto pedem ao HTML (ex.: 200% no Retina) passa a ser relativo à escala que o Gecko já aplica; antes ficava 4× e telas como o login do Power BI saíam cortadas |
 | `0017` | ntdll | binários com nomes próprios (`WinApps`, `WinApps Server`); o motor pode ser o executável de um app (programa, pasta, log, idioma e "manter aquecido" vêm do ambiente) |
 | `0018` | winecfg | título "Configurações do Windows" |
+| `0019` | winemac (rubinot) | minimizar o RubinOT esconde o app (o cliente perde a imagem ao miniaturizar) |
+| `0020` | winemac | superfície do DXMT acompanha o tamanho da janela; imagem esticada até a view |
+| `0002` | ole32 (rubinot) | `RevokeDragDrop` em janela de outro processo (32 e 64-bit) |
 | `dxmt/0001` | DXMT | compila sem o compilador Metal (metallib do pacote oficial embutido) |
 | `dxmt/0002–0003` | DXMT | `CreateSwapChainForComposition` (Chromium via DirectComposition) |
 | `dxmt/0004` | DXMT | `SwapDeviceContextState` mínimo (usado pelo Direct2D; antes o programa caía) |
@@ -181,9 +186,9 @@ no `compat.json` e da análise do `.exe` (`exe-kind.py --needs`).
 | `xproctest.c` | um processo pinta dentro da janela de outro (GDI e `d3d`) |
 | `docktest.c` | processo-filho com janela não ganha ícone no Dock |
 
-Ferramentas em `tests/tools/`: `wv2run.sh`, `pbirun.sh`, `cdp.py` (DevTools),
+Ferramentas em `tests/tools/`: `wv2run.sh`, `cdp.py` (DevTools),
 `mdmp.py` (crash dumps), `devinstall.sh` e `dxmt-devinstall.sh` (instalar módulos durante
-o desenvolvimento).
+o desenvolvimento). Testes de um programa só ficam em `../programas/<nome>/testes/`.
 
 ## Limitações conhecidas
 

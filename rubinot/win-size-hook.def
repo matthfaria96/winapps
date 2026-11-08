@@ -1,6 +1,0 @@
-LIBRARY avrt
-EXPORTS
- AvSetMmThreadCharacteristicsA
- AvSetMmThreadCharacteristicsW
- AvRevertMmThreadCharacteristic
- AvQuerySystemResponsiveness

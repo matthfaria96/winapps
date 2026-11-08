@@ -1,4 +1,0 @@
-LIBRARY emac-core
-EXPORTS
-    EMAC_SetEventCallBack
-    EMAC_ReceiveEvent

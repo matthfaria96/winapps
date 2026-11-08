@@ -183,27 +183,28 @@
     },
     {
       "name": "RubinOT",
-      "status": "funciona",
+      "status": "parcial",
       "match": {
         "file": "rubinot",
         "product": "rubinot"
       },
-      "why": "Testado em 08/11/2026: login, personagem no mapa, chat, inventário, loja e Battle Pass. A janela pode ser redimensionada à vontade (o jogo escala junto) e o X fecha o jogo.",
-      "alt": "Use o atalho RubinOT.app; o launcher não é necessário. A instalação usa a receita do WinApps (rubinot/install.sh).",
+      "why": "Testado em 08/11/2026: login, personagem no mapa, chat, inventário, loja e Battle Pass. A janela pode ser redimensionada à vontade (o jogo escala junto) e o X fecha o jogo. A sessão ainda cai de vez em quando (o cliente fecha sozinho); o vigia instalado com o jogo reabre o cliente automaticamente.",
+      "alt": "Use o atalho RubinOT.app; o launcher não é necessário. A instalação usa a receita do WinApps (programas/rubinot/install.sh). Para não reabrir sozinho: crie o arquivo .rubinot-sem-vigia no ambiente.",
       "needs": [
         "webview2"
       ],
       "kind": "app",
       "category": "Jogos",
-      "verified": true,
+      "verified": false,
       "tested": "08/11/2026",
       "fixes": [
         "Bibliotecas do cliente (emac, avrt)",
         "Janela com escala + X fecha",
         "Minimizar sem perder imagem",
-        "Direct3D 11 pelo Metal"
+        "Direct3D 11 pelo Metal",
+        "Reabre sozinho se a sessão cair"
       ],
-      "summary": "Login e jogo; janela redimensionável; X fecha"
+      "summary": "Joga bem, mas a sessão cai de vez em quando (reabre sozinho)"
     },
     {
       "name": "Notepad++",
