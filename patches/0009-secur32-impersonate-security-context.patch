@@ -1,0 +1,75 @@
+--- a/dlls/secur32/lsa.c
++++ b/dlls/secur32/lsa.c
+@@ -881,7 +881,7 @@
+     HANDLE primary;
+     BOOL r;
+ 
+-    FIXME("%p %p): stub\n", context, token);
++    TRACE("%p %p): semi-stub\n", context, token);
+ 
+     if (!OpenProcessToken(GetCurrentProcess(), MAXIMUM_ALLOWED, &primary))
+         return GetLastError();
+@@ -889,7 +889,32 @@
+     CloseHandle(primary);
+     return r ? SEC_E_OK : GetLastError();
+ }
++
++/* Wine has a single local user, so the authenticated client is always the process user:
++ * impersonating the context means impersonating a copy of our own token. Servers such as
++ * Analysis Services (Power BI) require this after AcceptSecurityContext. */
++static SECURITY_STATUS WINAPI lsa_ImpersonateSecurityContext(CtxtHandle *context)
++{
++    HANDLE token;
++    SECURITY_STATUS status;
+ 
++    TRACE("%p\n", context);
++
++    if (!context) return SEC_E_INVALID_HANDLE;
++    if ((status = lsa_QuerySecurityContextToken(context, &token))) return status;
++    status = SetThreadToken(NULL, token) ? SEC_E_OK : SEC_E_NO_IMPERSONATION;
++    CloseHandle(token);
++    return status;
++}
++
++static SECURITY_STATUS WINAPI lsa_RevertSecurityContext(CtxtHandle *context)
++{
++    TRACE("%p\n", context);
++
++    if (!context) return SEC_E_INVALID_HANDLE;
++    return SetThreadToken(NULL, NULL) ? SEC_E_OK : SEC_E_INTERNAL_ERROR;
++}
++
+ static SECURITY_STATUS WINAPI lsa_EncryptMessage(CtxtHandle *context, ULONG quality_of_protection,
+     SecBufferDesc *message, ULONG message_seq_no)
+ {
+@@ -940,8 +965,8 @@
+     lsa_DeleteSecurityContext,
+     NULL, /* ApplyControlToken */
+     lsa_QueryContextAttributesW,
+-    NULL, /* ImpersonateSecurityContext */
+-    NULL, /* RevertSecurityContext */
++    lsa_ImpersonateSecurityContext,
++    lsa_RevertSecurityContext,
+     lsa_MakeSignature,
+     lsa_VerifySignature,
+     NULL, /* FreeContextBuffer */
+@@ -972,8 +997,8 @@
+     lsa_DeleteSecurityContext,
+     NULL, /* ApplyControlToken */
+     lsa_QueryContextAttributesA,
+-    NULL, /* ImpersonateSecurityContext */
+-    NULL, /* RevertSecurityContext */
++    lsa_ImpersonateSecurityContext,
++    lsa_RevertSecurityContext,
+     lsa_MakeSignature,
+     lsa_VerifySignature,
+     NULL, /* FreeContextBuffer */
+@@ -984,7 +1009,7 @@
+     NULL, /* ImportSecurityContextA */
+     NULL, /* AddCredentialsA */
+     NULL, /* Reserved8 */
+-    NULL, /* QuerySecurityContextToken */
++    lsa_QuerySecurityContextToken,
+     lsa_EncryptMessage,
+     lsa_DecryptMessage,
+     NULL, /* SetContextAttributesA */

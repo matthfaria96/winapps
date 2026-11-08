@@ -1,0 +1,242 @@
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -119,6 +119,18 @@
+ @end
+ 
+ 
++static volatile int macdrv_helper_process;
++
++/***********************************************************************
++ *              macdrv_set_helper_process
++ *
++ * WinApps: called from the Unix side before a window is ordered in.
++ */
++void macdrv_set_helper_process(int helper)
++{
++    macdrv_helper_process = helper;
++}
++
+ @implementation WineApplicationController
+ 
+     @synthesize keyboardType, lastFlagsChanged;
+@@ -229,6 +241,26 @@
+ 
+     - (void) transformProcessToForeground:(BOOL)activateIfTransformed
+     {
++        /* WinApps: a helper process (started by another process of the same program that
++           already shows windows, e.g. msedgewebview2.exe under the host app) shows its
++           windows without a Dock icon / Cmd-Tab entry / menu bar of its own, so the
++           program looks like a single Mac app. */
++        if (macdrv_helper_process && [NSApp activationPolicy] != NSApplicationActivationPolicyRegular)
++        {
++            if ([NSApp activationPolicy] != NSApplicationActivationPolicyAccessory)
++            {
++                [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
++                if (activateIfTransformed)
++                    [self tryToActivateIgnoringOtherApps:YES];
++                if (!enable_app_nap)
++                {
++                    [[[NSProcessInfo processInfo] beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
++                                                                    reason:@"Running Windows program"] retain]; // intentional leak
++                }
++            }
++            return;
++        }
++
+         if ([NSApp activationPolicy] != NSApplicationActivationPolicyRegular)
+         {
+             NSMenu* mainMenu;
+@@ -236,13 +268,15 @@
+             NSString* bundleName;
+             NSString* title;
+             NSMenuItem* item;
++
++            BOOL wasAccessory = ([NSApp activationPolicy] == NSApplicationActivationPolicyAccessory);
+ 
+             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+ 
+             if (activateIfTransformed)
+                 [self tryToActivateIgnoringOtherApps:YES];
+ 
+-            if (!enable_app_nap)
++            if (!enable_app_nap && !wasAccessory)
+             {
+                 [[[NSProcessInfo processInfo] beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
+                                                                 reason:@"Running Windows program"] retain]; // intentional leak
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -117,6 +117,7 @@
+ extern bool retina_enabled;  /* Whether Retina mode is enabled via registry setting. */
+ extern bool retina_on;       /* Whether Retina mode is currently active (enabled and display is in default mode). */
+ extern bool enable_app_nap;
++extern bool group_helper_processes;
+ 
+ static inline CGRect cgrect_mac_from_win(CGRect rect)
+ {
+@@ -192,6 +193,7 @@
+ extern void macdrv_window_rejected_focus(const struct macdrv_event *event);
+ extern void macdrv_beep(void);
+ extern void macdrv_set_application_icon(CFArrayRef images);
++extern void macdrv_set_helper_process(int helper);
+ extern void macdrv_quit_reply(int reply);
+ extern bool macdrv_using_input_method(void);
+ extern void macdrv_set_mouse_capture_window(WineWindow *window);
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -54,6 +54,7 @@
+ bool retina_enabled = false;
+ bool native_menubar = false;
+ bool enable_app_nap = false;
++bool group_helper_processes = true;
+  bool force_backing_store = FALSE;
+ 
+ pthread_key_t macdrv_thread_data_key = 0;
+@@ -365,6 +366,9 @@
+ 
+     if (!get_config_key(hkey, appkey, "EnableAppNap", buffer, sizeof(buffer)))
+         enable_app_nap = IS_OPTION_TRUE(buffer[0]);
++
++    if (!get_config_key(hkey, appkey, "GroupHelperProcesses", buffer, sizeof(buffer)))
++        group_helper_processes = IS_OPTION_TRUE(buffer[0]);
+ 
+     if (!get_config_key(hkey, appkey, "ForceOpenGLBackingStore", buffer, sizeof(buffer)))
+         force_backing_store = IS_OPTION_TRUE(buffer[0]);
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -615,9 +615,128 @@
+     }
+ 
+     release_win_data(data);
++}
++
++/***********************************************************************
++ *              process_has_visible_window
++ */
++static BOOL process_has_visible_window(DWORD pid)
++{
++    HWND hwnd;
++    DWORD owner;
++
++    for (hwnd = NtUserGetWindowRelative(NtUserGetDesktopWindow(), GW_CHILD); hwnd;
++         hwnd = NtUserGetWindowRelative(hwnd, GW_HWNDNEXT))
++    {
++        if (!(NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_VISIBLE)) continue;
++        owner = 0;
++        NtUserGetWindowThread(hwnd, &owner);
++        if (owner == pid) return TRUE;
++    }
++    return FALSE;
++}
++
++static BOOL name_is(const UNICODE_STRING *name, const char *ascii)
++{
++    USHORT i, len = name->Length / sizeof(WCHAR);
++
++    if (len != strlen(ascii)) return FALSE;
++    for (i = 0; i < len; i++)
++    {
++        WCHAR c = name->Buffer[i];
++        if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
++        if (c != (unsigned char)ascii[i]) return FALSE;
++    }
++    return TRUE;
++}
++
++/***********************************************************************
++ *              is_helper_process
++ *
++ * WinApps: a process is a "helper" when one of its (living) ancestors already
++ * shows windows, e.g. msedgewebview2.exe started by the host program.  Its
++ * windows then belong to the program's Mac app instead of getting a Dock icon
++ * of their own.  Processes started from Wine's explorer are not helpers.
++ */
++static BOOL is_helper_process(void)
++{
++    SYSTEM_PROCESS_INFORMATION *spi, *cur;
++    ULONG size = 0x40000, needed = 0, depth;
++    DWORD pid = HandleToULong(NtCurrentTeb()->ClientId.UniqueProcess), parent = 0;
++    NTSTATUS status;
++    BOOL ret = FALSE;
++    char *buf;
++
++    for (;;)
++    {
++        if (!(buf = malloc(size))) return FALSE;
++        status = NtQuerySystemInformation(SystemProcessInformation, buf, size, &needed);
++        if (status != STATUS_INFO_LENGTH_MISMATCH) break;
++        free(buf);
++        size = max(size * 2, needed + 0x1000);
++    }
++    if (status) goto done;
++
++#define FIND_PROCESS(id) \
++    for (cur = (SYSTEM_PROCESS_INFORMATION *)buf;; \
++         cur = (SYSTEM_PROCESS_INFORMATION *)((char *)cur + cur->NextEntryOffset)) \
++    { \
++        if (HandleToULong(cur->UniqueProcessId) == (id)) break; \
++        if (!cur->NextEntryOffset) { cur = NULL; break; } \
++    }
++
++    FIND_PROCESS(pid);
++    if (!cur) goto done;
++    parent = HandleToULong(cur->ParentProcessId);
++
++    for (depth = 0; parent && parent != pid && depth < 16; depth++)
++    {
++        FIND_PROCESS(parent);
++        if (!(spi = cur)) break;  /* parent is gone */
++        if (name_is(&spi->ProcessName, "explorer.exe")) break;
++        if (process_has_visible_window(parent))
++        {
++            ret = TRUE;
++            break;
++        }
++        parent = HandleToULong(spi->ParentProcessId);
++    }
++#undef FIND_PROCESS
++
++done:
++    free(buf);
++    TRACE("helper process: %d (ancestor %04x)\n", ret, ret ? (unsigned int)parent : 0);
++    return ret;
+ }
+ 
+ /***********************************************************************
++ *              update_helper_process
++ */
++static void update_helper_process(void)
++{
++    static BOOL regular;            /* once a normal app, always a normal app */
++    static DWORD last_check;
++    static BOOL helper;
++    DWORD now;
++
++    if (regular) return;
++    if (!group_helper_processes)
++    {
++        regular = TRUE;
++        macdrv_set_helper_process(0);
++        return;
++    }
++    now = NtGetTickCount();
++    if (!last_check || now - last_check > 1000)
++    {
++        helper = is_helper_process();
++        last_check = now ? now : 1;
++    }
++    macdrv_set_helper_process(helper);
++    if (!helper) regular = TRUE;
++}
++
++/***********************************************************************
+  *              show_window
+  */
+ static void show_window(struct macdrv_win_data *data)
+@@ -648,6 +767,7 @@
+ 
+     if (!prev_window)
+         activate = activate_on_focus_time && (NtGetTickCount() - activate_on_focus_time < 2000);
++    update_helper_process();
+     macdrv_order_cocoa_window(data->cocoa_window, prev_window, next_window, activate);
+     data->on_screen = TRUE;
+ 

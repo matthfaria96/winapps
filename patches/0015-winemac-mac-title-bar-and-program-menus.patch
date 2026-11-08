@@ -1,0 +1,1309 @@
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -81,6 +81,49 @@
+ }
+ 
+ /***********************************************************************
++ *              measure_own_title_bar
++ *
++ * WinApps: height (in points) of the title bar a program draws itself, asking the program
++ * where its caption is (WM_NCHITTEST) down a few columns of the window.  0 = none found.
++ */
++static unsigned int measure_own_title_bar(HWND hwnd)
++{
++    static const int cols[] = {30, 45, 55, 65, 80};
++    UINT wdpi = NtUserGetDpiForWindow(hwnd), mdpi = NtUserGetWinMonitorDpi(hwnd, MDT_DEFAULT);
++    int best = 0, limit, i, y;
++    RECT r;
++
++    if (!wdpi || !mdpi || !NtUserGetWindowRect(hwnd, &r, wdpi)) return 0;
++    if (r.right - r.left < 200 || r.bottom - r.top < 100) return 0;
++    limit = min((r.bottom - r.top) / 3, (int)(160 * wdpi / 96));
++    for (i = 0; i < ARRAY_SIZE(cols); i++)
++    {
++        int x = r.left + (r.right - r.left) * cols[i] / 100, run = 0;
++        BOOL started = FALSE;
++        for (y = r.top; y < r.top + limit; y++)
++        {
++            LRESULT ht = send_message(hwnd, WM_NCHITTEST, 0, MAKELPARAM(x, y));
++            if (ht == HTTOP || ht == HTTOPLEFT || ht == HTTOPRIGHT || ht == HTBORDER)
++            {
++                if (started) break;
++                continue;
++            }
++            if (ht != HTCAPTION) break;
++            started = TRUE;
++            run = y - r.top + 1;
++        }
++        best = max(best, run);
++    }
++    if (!best) return 0;
++    {
++        CGRect mac = cgrect_mac_from_win(CGRectMake(0, 0, 10, (double)best * mdpi / wdpi));
++        int pts = (int)(mac.size.height + 0.99);
++        return min(max(pts, 1), 255);
++    }
++}
++
++
++/***********************************************************************
+  *              get_cocoa_window_features
+  */
+ static struct macdrv_window_features get_cocoa_window_features(struct macdrv_win_data *data, DWORD style, DWORD ex_style)
+@@ -102,6 +145,16 @@
+             wf.resizable = TRUE;
+             if (style & WS_MINIMIZEBOX) wf.minimize_button = TRUE;
+             if (style & WS_MAXIMIZEBOX) wf.maximize_button = TRUE;
++            /* WinApps: Mac title bar (traffic lights, title) over the program's own one */
++            if (mac_title_bar && (style & WS_CAPTION) == WS_CAPTION)
++            {
++                if (data->titlebar_points >= 16)  /* measured in WindowPosChanged */
++                {
++                    wf.mac_titlebar = TRUE;
++                    wf.titlebar_height = data->titlebar_points;
++                    wf.close_button = (style & WS_SYSMENU) != 0;
++                }
++            }
+         }
+         return wf;
+     }
+@@ -1859,6 +1912,26 @@
+ 
+     macdrv_remote_refresh_root(hwnd, !(swp_flags & SWP_NOZORDER) ||
+                                      (swp_flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)));
++    /* WinApps: measure the program's own title bar (outside the win_data lock: it asks the
++       program through messages), until it answers; then the Mac title bar can cover it */
++    if (mac_title_bar && EqualRect(&new_rects->window, &new_rects->visible) &&
++        (new_style & (WS_VISIBLE | WS_THICKFRAME | WS_CAPTION)) == (WS_VISIBLE | WS_THICKFRAME | WS_CAPTION) &&
++        !(new_style & WS_CHILD) && (data = get_win_data(hwnd)))
++    {
++        BOOL again = data->cocoa_window && !data->titlebar_points && data->titlebar_tries < 20;
++        release_win_data(data);
++        if (again)
++        {
++            unsigned int pts = program_titlebar_points ? program_titlebar_points : measure_own_title_bar(hwnd);
++            if ((data = get_win_data(hwnd)))
++            {
++                data->titlebar_tries++;
++                data->titlebar_points = pts;
++                if (pts && data->cocoa_window) set_cocoa_window_properties(data);
++                release_win_data(data);
++            }
++        }
++    }
+     if (!(data = get_win_data(hwnd))) return;
+ 
+     thread_data = macdrv_thread_data();
+@@ -2096,6 +2169,12 @@
+  */
+ void macdrv_window_maximize_requested(HWND hwnd)
+ {
++    /* WinApps: the Mac title bar's zoom button toggles, like the Windows maximize button */
++    if (NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_MAXIMIZE)
++    {
++        perform_window_command(hwnd, WS_MAXIMIZE, 0, SC_RESTORE, HTMAXBUTTON);
++        return;
++    }
+     perform_window_command(hwnd, WS_MAXIMIZEBOX, WS_MAXIMIZE, SC_MAXIMIZE, HTMAXBUTTON);
+ }
+ 
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -861,8 +861,384 @@
+     - (BOOL) isOpaque
+     {
+         return YES;
++    }
++
++@end
++
++
++static NSString *titlebar_buttons_recipe;
++
++/* WinApps: icons the system symbols lack, drawn like them (thin strokes, template) */
++static NSImage *winapps_symbol(NSString *name, NSString *title)
++{
++    if ([name isEqualToString:@"@floppy"])
++    {
++        NSImage *img = [NSImage imageWithSize:NSMakeSize(16, 16) flipped:NO drawingHandler:^BOOL(NSRect r) {
++            NSBezierPath *p = [NSBezierPath bezierPath];
++            [[NSColor blackColor] set];
++            [p setLineWidth:1.25];
++            [p setLineJoinStyle:NSLineJoinStyleRound];
++            [p moveToPoint:NSMakePoint(2.6, 3.6)];              /* body with the cut corner */
++            [p curveToPoint:NSMakePoint(3.6, 2.6) controlPoint1:NSMakePoint(2.6, 3.0) controlPoint2:NSMakePoint(3.0, 2.6)];
++            [p lineToPoint:NSMakePoint(12.4, 2.6)];
++            [p curveToPoint:NSMakePoint(13.4, 3.6) controlPoint1:NSMakePoint(13.0, 2.6) controlPoint2:NSMakePoint(13.4, 3.0)];
++            [p lineToPoint:NSMakePoint(13.4, 11.0)];
++            [p lineToPoint:NSMakePoint(11.0, 13.4)];
++            [p lineToPoint:NSMakePoint(3.6, 13.4)];
++            [p curveToPoint:NSMakePoint(2.6, 12.4) controlPoint1:NSMakePoint(3.0, 13.4) controlPoint2:NSMakePoint(2.6, 13.0)];
++            [p closePath];
++            [p stroke];
++            p = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(5.0, 9.4, 5.2, 4.0) xRadius:0.6 yRadius:0.6];   /* shutter */
++            [p setLineWidth:1.25];
++            [p stroke];
++            p = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(4.6, 2.6, 6.8, 4.4) xRadius:0.8 yRadius:0.8];   /* label */
++            [p setLineWidth:1.25];
++            [p stroke];
++            return YES;
++        }];
++        [img setTemplate:YES];
++        img.accessibilityDescription = title;
++        return img;
++    }
++    return [NSImage imageWithSystemSymbolName:name accessibilityDescription:title];
++}
++
++void macdrv_set_titlebar_buttons(const char *recipe)
++{
++    NSString *s = [[NSString alloc] initWithUTF8String:recipe];
++    if ([s length]) titlebar_buttons_recipe = s;
++    else [s release];
++}
++
++/* WinApps: close/minimize/zoom drawn like the system ones (the standard buttons no longer light
++   up outside a real title bar).  All three show their symbols while the mouse is over the group,
++   the pressed one darkens, and they are gray in an inactive window unless the mouse is over them. */
++@interface WineTrafficLight : NSButton
++@end
++
++@interface WineTrafficLights : NSView
++{
++@public
++    BOOL inside;
++    NSTrackingArea *area;
++}
++- (void) refresh;
++@end
++
++@implementation WineTrafficLight
++
++    - (BOOL) isFlipped { return NO; }
++
++    - (void) drawRect:(NSRect)dirty
++    {
++        static const CGFloat fill[3][3] = {{1.0, 0.373, 0.341}, {0.996, 0.737, 0.180}, {0.157, 0.784, 0.251}};
++        static const CGFloat edge[3][3] = {{0.886, 0.275, 0.247}, {0.882, 0.631, 0.086}, {0.071, 0.675, 0.157}};
++        static const CGFloat glyph[3][3] = {{0.30, 0.0, 0.0}, {0.60, 0.34, 0.0}, {0.0, 0.40, 0.0}};
++        WineTrafficLights *group = (WineTrafficLights *)[self superview];
++        BOOL hover = [group isKindOfClass:[WineTrafficLights class]] && group->inside;
++        BOOL active = [[self window] isKeyWindow] || [[self window] isMainWindow] || hover;
++        BOOL dark = [[[self effectiveAppearance] bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]]
++                        isEqualToString:NSAppearanceNameDarkAqua];
++        NSInteger k = MIN(MAX([self tag], 0), 2);
++        NSRect b = [self bounds];
++        CGFloat d = 12, x = NSMidX(b) - d / 2, y = NSMidY(b) - d / 2;
++        NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(x + 0.25, y + 0.25, d - 0.5, d - 0.5)];
++        CGFloat shade = [self isHighlighted] ? 0.82 : 1.0;
++
++        if (![self isEnabled] || !active)
++        {
++            [[NSColor colorWithWhite:(dark ? 0.32 : 0.82) alpha:1] setFill];
++            [[NSColor colorWithWhite:(dark ? 0.26 : 0.72) alpha:1] setStroke];
++        }
++        else
++        {
++            [[NSColor colorWithSRGBRed:fill[k][0] * shade green:fill[k][1] * shade blue:fill[k][2] * shade alpha:1] setFill];
++            [[NSColor colorWithSRGBRed:edge[k][0] green:edge[k][1] blue:edge[k][2] alpha:1] setStroke];
++        }
++        [circle fill];
++        [circle setLineWidth:0.5];
++        [circle stroke];
++
++        if (hover && [self isEnabled])
++        {
++            NSBezierPath *g = [NSBezierPath bezierPath];
++            CGFloat cx = NSMidX(b), cy = NSMidY(b), r = 2.9;
++            [[NSColor colorWithSRGBRed:glyph[k][0] green:glyph[k][1] blue:glyph[k][2] alpha:0.85] setStroke];
++            [g setLineWidth:1.15];
++            [g setLineCapStyle:NSLineCapStyleRound];
++            if (k == 0)
++            {
++                [g moveToPoint:NSMakePoint(cx - r, cy - r)]; [g lineToPoint:NSMakePoint(cx + r, cy + r)];
++                [g moveToPoint:NSMakePoint(cx - r, cy + r)]; [g lineToPoint:NSMakePoint(cx + r, cy - r)];
++            }
++            else
++            {
++                [g moveToPoint:NSMakePoint(cx - r - 0.6, cy)]; [g lineToPoint:NSMakePoint(cx + r + 0.6, cy)];
++                if (k == 2) { [g moveToPoint:NSMakePoint(cx, cy - r - 0.6)]; [g lineToPoint:NSMakePoint(cx, cy + r + 0.6)]; }
++            }
++            [g stroke];
++        }
++    }
++
++@end
++
++@implementation WineTrafficLights
++
++    - (void) refresh
++    {
++        for (NSView *v in [self subviews]) [v setNeedsDisplay:YES];
++    }
++
++    - (void) viewDidMoveToWindow
++    {
++        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
++        [nc removeObserver:self];
++        if ([self window])
++        {
++            for (NSString *n in @[NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
++                                  NSWindowDidBecomeMainNotification, NSWindowDidResignMainNotification])
++                [nc addObserver:self selector:@selector(refresh) name:n object:[self window]];
++        }
++    }
++
++    - (void) updateTrackingAreas
++    {
++        [super updateTrackingAreas];
++        if (area) [self removeTrackingArea:area];
++        [area release];
++        area = [[NSTrackingArea alloc] initWithRect:[self bounds]
++                                            options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways
++                                              owner:self userInfo:nil];
++        [self addTrackingArea:area];
++        /* the mouse may already be inside when the group (re)appears */
++        if ([self window])
++        {
++            NSPoint p = [self convertPoint:[[self window] mouseLocationOutsideOfEventStream] fromView:nil];
++            BOOL now = NSPointInRect(p, [self bounds]);
++            if (now != inside) { inside = now; [self refresh]; }
++        }
++    }
++
++    - (void) mouseEntered:(NSEvent *)event { inside = YES; [self refresh]; }
++    - (void) mouseExited:(NSEvent *)event { inside = NO; [self refresh]; }
++
++    - (void) dealloc
++    {
++        [[NSNotificationCenter defaultCenter] removeObserver:self];
++        [area release];
++        [super dealloc];
++    }
++
++@end
++
++
++/* WinApps: Mac title bar laid over a program's own one (see -wine_updateMacTitleBar:) */
++@implementation WineMacTitleBar
++
++    - (instancetype) initWithWindow:(WineWindow *)window features:(const struct macdrv_window_features*)wf
++    {
++        int i;
++
++        if (!(self = [super initWithFrame:NSMakeRect(0, 0, 100, 28)])) return nil;
++        owner = window;
++        self.material = NSVisualEffectMaterialTitlebar;
++        self.blendingMode = NSVisualEffectBlendingModeBehindWindow;  /* like real title bars; not the program's colors under it */
++        self.state = NSVisualEffectStateFollowsWindowActiveState;
++        self.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
++
++        trafficLights = [[WineTrafficLights alloc] initWithFrame:NSMakeRect(6, 0, 66, 20)];
++        for (i = 0; i < 3; i++)
++        {
++            NSButton *b = [[[WineTrafficLight alloc] initWithFrame:NSMakeRect(0, 0, 14, 16)] autorelease];
++            b.bordered = NO;
++            b.title = @"";
++            [b setButtonType:NSButtonTypeMomentaryChange];
++            b.toolTip = i == 0 ? @"Fechar" : i == 1 ? @"Minimizar" : @"Maximizar ou restaurar";
++            b.target = self;
++            b.action = @selector(buttonPressed:);
++            b.tag = i;
++            [trafficLights addSubview:b];
++            buttons[i] = b;
++        }
++        [self addSubview:trafficLights];
++        buttons[0].enabled = wf->close_button;
++        buttons[1].enabled = wf->minimize_button;
++        buttons[2].enabled = wf->maximize_button;
++
++        /* WinApps: program buttons from the recipe (TitleBarButtons): "Label=action@symbol;…||right side" */
++        toolbar = [[NSMutableArray alloc] init];
++        if (titlebar_buttons_recipe)
++        {
++            NSArray *sides = [titlebar_buttons_recipe componentsSeparatedByString:@"||"];
++            NSUInteger side;
++            for (side = 0; side < [sides count] && side < 2; side++)
++            {
++                for (NSString *spec in [sides[side] componentsSeparatedByString:@";"])
++                {
++                    /* "Title=action@symbol": the symbol starts at the first @ after the action
++                       (our own symbols begin with @ too: "ctrl+s@@floppy") */
++                    NSRange eq = [spec rangeOfString:@"="], at = NSMakeRange(NSNotFound, 0);
++                    if (eq.location != NSNotFound)
++                        at = [spec rangeOfString:@"@" options:0 range:NSMakeRange(eq.location + 1, [spec length] - eq.location - 1)];
++                    NSString *title, *action, *symbol = nil;
++                    NSImage *image;
++                    NSButton *b;
++                    if (eq.location == NSNotFound) continue;
++                    title = [spec substringToIndex:eq.location];
++                    action = [spec substringFromIndex:eq.location + 1];
++                    if (at.location != NSNotFound && at.location > eq.location)
++                    {
++                        symbol = [spec substringFromIndex:at.location + 1];
++                        action = [spec substringWithRange:NSMakeRange(eq.location + 1, at.location - eq.location - 1)];
++                    }
++                    image = symbol ? winapps_symbol(symbol, title) : nil;
++                    b = side == 0 && image ? [NSButton buttonWithImage:image target:self action:@selector(buttonPressed:)]
++                                           : [NSButton buttonWithTitle:title image:(image ?: [NSImage imageNamed:NSImageNameActionTemplate])
++                                                                target:self action:@selector(buttonPressed:)];
++                    b.bordered = NO;
++                    b.toolTip = title;
++                    b.identifier = action;
++                    b.tag = 100 + side;   /* 100: left, 101: right */
++                    b.imagePosition = side == 0 ? NSImageOnly : NSImageLeading;
++                    b.contentTintColor = [NSColor secondaryLabelColor];
++                    [b sizeToFit];
++                    [self addSubview:b];
++                    [toolbar addObject:b];
++                }
++            }
++        }
++
++        label = [[NSTextField labelWithString:@""] retain];
++        label.font = [NSFont titleBarFontOfSize:0];
++        label.alignment = NSTextAlignmentCenter;
++        label.lineBreakMode = NSLineBreakByTruncatingMiddle;
++        label.textColor = [NSColor labelColor];
++        [self addSubview:label];
++
++        return self;
++    }
++
++    - (void) dealloc
++    {
++        [label release];
++        [toolbar release];
++        [trafficLights release];
++        [super dealloc];
++    }
++
++    - (void) setHeight:(CGFloat)height inView:(NSView *)view features:(const struct macdrv_window_features*)wf
++    {
++        NSRect b = [view bounds];
++        CGFloat y = [view isFlipped] ? 0 : NSMaxY(b) - height;
++        int i;
++
++        if (self.superview != view || [[view subviews] lastObject] != self)
++            [view addSubview:self positioned:NSWindowAbove relativeTo:nil];
++        /* above the layers of other processes' child windows (CALayerHost, zPosition ≥ 1000) */
++        self.wantsLayer = YES;
++        self.layer.zPosition = 1000000;
++        self.autoresizingMask = NSViewWidthSizable | ([view isFlipped] ? NSViewMaxYMargin : NSViewMinYMargin);
++        self.frame = NSMakeRect(0, y, NSWidth(b), height);
++        buttons[0].enabled = wf->close_button;
++        buttons[1].enabled = wf->minimize_button;
++        buttons[2].enabled = wf->maximize_button;
++        {
++            NSSize s = buttons[0].frame.size;
++            trafficLights.frame = NSMakeRect(6, floor((height - s.height) / 2) - 3, 6 + 2 * 20 + s.width + 6, s.height + 6);
++            for (i = 0; i < 3; i++)
++                [buttons[i] setFrameOrigin:NSMakePoint(6 + i * 20, 3)];
++            [trafficLights updateTrackingAreas];
++        }
++        {
++            CGFloat left = 80, right = NSWidth(b) - 10;
++            for (NSButton *t in toolbar)
++            {
++                NSSize s = t.frame.size;
++                s.width = MAX(s.width, 24);
++                if (t.tag == 100)
++                {
++                    [t setFrame:NSMakeRect(left, floor((height - s.height) / 2), s.width, s.height)];
++                    t.autoresizingMask = NSViewMaxXMargin;
++                    left += s.width + 8;
++                }
++                else
++                {
++                    right -= s.width;
++                    [t setFrame:NSMakeRect(right, floor((height - s.height) / 2), s.width, s.height)];
++                    t.autoresizingMask = NSViewMinXMargin;
++                    right -= 10;
++                }
++            }
++            /* the title stays centered in the window, between the buttons */
++            {
++                CGFloat room = MIN(NSWidth(b) / 2 - left, right - NSWidth(b) / 2);
++                room = MAX(room, 0);
++                label.frame = NSMakeRect(NSWidth(b) / 2 - room, floor((height - 16) / 2), 2 * room, 16);
++                label.autoresizingMask = NSViewMinXMargin | NSViewMaxXMargin;
++            }
++        }
+     }
+ 
++    - (void) setTitleText:(NSString *)text
++    {
++        label.stringValue = text ?: @"";
++    }
++
++    - (void) buttonPressed:(NSButton *)sender
++    {
++        if (sender.tag >= 100)
++        {
++            [owner wine_runAction:sender.identifier];
++            return;
++        }
++        switch (sender.tag)
++        {
++            case 0: [owner windowShouldClose:owner]; break;          /* asks the program (WM_CLOSE) */
++            case 1: [owner miniaturize:nil]; break;
++            case 2: [owner wine_toggleMaximized]; break;
++        }
++    }
++
++
++    - (BOOL) acceptsFirstMouse:(NSEvent *)event { return YES; }
++    - (BOOL) mouseDownCanMoveWindow { return NO; }
++
++    - (void) mouseDown:(NSEvent *)event
++    {
++        NSEvent *next;
++        NSRect f, vf;
++
++        if (event.clickCount == 2)
++        {
++            NSString *action = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleActionOnDoubleClick"];
++            if ([action isEqualToString:@"Minimize"]) [owner miniaturize:nil];
++            else if (![action isEqualToString:@"None"]) [owner wine_toggleMaximized];
++            return;
++        }
++        /* only a real drag moves the window (a click may be half of a double click) */
++        next = [NSApp nextEventMatchingMask:NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp
++                                  untilDate:[NSDate dateWithTimeIntervalSinceNow:2] inMode:NSEventTrackingRunLoopMode dequeue:NO];
++        if (next.type != NSEventTypeLeftMouseDragged) return;
++
++        f = owner.frame;
++        vf = (owner.screen ?: [NSScreen mainScreen]).visibleFrame;
++        if (NSWidth(f) >= NSWidth(vf) - 2 && NSHeight(f) >= NSHeight(vf) - 2)
++        {
++            /* maximized: restore it under the mouse, like dragging a maximized window on Windows */
++            NSPoint m = [NSEvent mouseLocation];
++            macdrv_event *ev = macdrv_create_event(WINDOW_MAXIMIZE_REQUESTED, owner);  /* toggles: restores */
++            [owner.queue postEvent:ev];
++            macdrv_release_event(ev);
++            macdrv_window_follow_mouse(owner, (m.x - NSMinX(f)) / MAX(1, NSWidth(f)),
++                                       (NSMaxY(f) - m.y) / MAX(1, NSHeight(vf)));
++            return;
++        }
++        /* the driver's windows cannot use -performWindowDragWithEvent: (it never starts) */
++        macdrv_window_follow_mouse(owner, -1, -1);
++    }
++
++    - (void) rightMouseDown:(NSEvent *)event { }
++
+ @end
+ 
+ 
+@@ -1042,8 +1418,17 @@
+         static const NSUInteger usedStyles = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable |
+                                              NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow | NSWindowStyleMaskBorderless |
+                                              NSWindowStyleMaskNonactivatingPanel;
++        struct macdrv_window_features effective;
+         NSUInteger currentStyle = [self styleMask];
+-        NSUInteger newStyle = style_mask_for_features(wf) | (currentStyle & ~usedStyles);
++        NSUInteger newStyle;
++
++        /* WinApps: remember the features to switch the Mac title bar on and off later */
++        lastFeatures = *wf;
++        effective = *wf;
++        if (programTitleBarShown) effective.mac_titlebar = FALSE;
++        if (wf->mac_titlebar) macdrv_note_program_title_bar_window();
++        wf = &effective;
++        newStyle = style_mask_for_features(wf) | (currentStyle & ~usedStyles);
+ 
+         self.preventsAppActivation = wf->prevents_app_activation;
+ 
+@@ -1088,8 +1473,193 @@
+         resizable = wf->resizable;
+         [self adjustFeaturesForState];
+         [self setHasShadow:wf->shadow];
++        [self wine_updateMacTitleBar:wf];
+     }
+ 
++    /* WinApps: a Mac title bar (system material, standard window buttons, title) laid over
++       the program's own title bar.  The window keeps its geometry: the program still owns the
++       whole window, the bar just covers its caption and takes its clicks. */
++    - (void) wine_updateMacTitleBar:(const struct macdrv_window_features*)wf
++    {
++        NSView *content = [self contentView];
++
++        if (!wf->mac_titlebar)
++        {
++            [titlebarOverlay removeFromSuperview];
++            [titlebarOverlay release];
++            titlebarOverlay = nil;
++            return;
++        }
++        if (!titlebarOverlay)
++        {
++            titlebarOverlay = [[WineMacTitleBar alloc] initWithWindow:self features:wf];
++        }
++        /* in the window's frame view, above the content view: views the driver adds to the
++           content view later can never cover it */
++        [(WineMacTitleBar *)titlebarOverlay setHeight:wf->titlebar_height inView:([content superview] ?: content) features:wf];
++        [(WineMacTitleBar *)titlebarOverlay setTitleText:[self title]];
++    }
++
++    /* the standard buttons of the Mac title bar (and the Window menu) call these; the window
++       itself has no Cocoa title bar, so do what its title bar buttons would do */
++    - (void) performClose:(id)sender
++    {
++        if (titlebarOverlay) [self windowShouldClose:self];
++        else [super performClose:sender];
++    }
++
++    - (void) performMiniaturize:(id)sender
++    {
++        if (titlebarOverlay || lastFeatures.minimize_button) [self miniaturize:sender];
++        else [super performMiniaturize:sender];
++    }
++
++    - (void) performZoom:(id)sender
++    {
++        if (titlebarOverlay || lastFeatures.mac_titlebar || (lastFeatures.resizable && !lastFeatures.title_bar))
++            [self wine_toggleMaximized];
++        else [super performZoom:sender];
++    }
++
++    /* maximize ⇄ restore, the Windows way (the program decides the maximized size) */
++    - (void) wine_toggleMaximized
++    {
++        /* the Windows side knows whether it is maximized and restores it then */
++        macdrv_event* event = macdrv_create_event(WINDOW_MAXIMIZE_REQUESTED, self);
++        [queue postEvent:event];
++        macdrv_release_event(event);
++    }
++
++    - (BOOL) wine_pointInMacTitleBar:(NSPoint)screenPoint
++    {
++        NSRect r;
++        if (!titlebarOverlay || [titlebarOverlay isHidden] || ![titlebarOverlay window]) return NO;
++        r = [self convertRectToScreen:[titlebarOverlay convertRect:[titlebarOverlay bounds] toView:nil]];
++        return NSMouseInRect(screenPoint, r, NO);
++    }
++
++    - (void) setTitle:(NSString *)title
++    {
++        [super setTitle:title];
++        if (titlebarOverlay) [(WineMacTitleBar *)titlebarOverlay setTitleText:title];
++    }
++
++    /* WinApps: "Show the program's title bar" (Window menu) */
++    - (void) wine_toggleProgramTitleBar:(id)sender
++    {
++        struct macdrv_window_features wf = lastFeatures;
++        programTitleBarShown = !programTitleBarShown;
++        [self setWindowFeatures:&wf];
++    }
++
++    /* WinApps: program menu item from the recipe: press the program's keyboard shortcut,
++       through the same path as real keys ("ctrl+shift+s", "f5", "alt+f4"…) */
++    - (void) wine_programShortcut:(NSMenuItem*)sender
++    {
++        [self wine_runAction:[sender representedObject]];
++    }
++
++    /* WinApps: recipe action: a keyboard shortcut ("ctrl+s") or a click on the program's own
++       title bar, hidden under the Mac one ("click:X,Y" in points from the window's top-left;
++       a negative X counts from the right edge) */
++    - (void) wine_runAction:(NSString*)spec
++    {
++        /* "click!:X,Y" = the click opens a window: if none shows up, the page was not ready for
++           the first click (it only woke up), so click once more */
++        if ([spec hasPrefix:@"click!:"])
++        {
++            NSString *plain = [@"click:" stringByAppendingString:[spec substringFromIndex:7]];
++            NSUInteger before = 0;
++            for (NSWindow *w in [NSApp windows]) if ([w isVisible]) before++;
++            [self wine_runAction:plain];
++            [self retain];
++            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
++                NSUInteger now = 0;
++                for (NSWindow *w in [NSApp windows]) if ([w isVisible]) now++;
++                if (now <= before) [self wine_runAction:plain];
++                [self release];
++            });
++            return;
++        }
++        if ([spec hasPrefix:@"click:"])
++        {
++            NSArray *xy = [[spec substringFromIndex:6] componentsSeparatedByString:@","];
++            NSRect f = [self frame];
++            CGFloat primaryTop = NSMaxY([[[NSScreen screens] firstObject] frame]);
++            CGFloat x = [xy count] > 0 ? [xy[0] doubleValue] : 0, y = [xy count] > 1 ? [xy[1] doubleValue] : 0;
++            CGPoint pt = CGPointMake(NSMinX(f) + (x < 0 ? NSWidth(f) + x : x), primaryTop - NSMaxY(f) + y);
++            unsigned long t = [[WineApplicationController sharedController] ticksForEventTime:[[NSProcessInfo processInfo] systemUptime]];
++            macdrv_event *ev;
++
++            pt = cgpoint_win_from_mac(pt);
++            /* two moves (entering the button, then onto it): pages track hover from the first */
++            for (int m = 0; m < 2; m++)
++            {
++                ev = macdrv_create_event(MOUSE_MOVED_ABSOLUTE, self);
++                ev->mouse_moved.x = floor(pt.x) - (m ? 0 : 4);
++                ev->mouse_moved.y = floor(pt.y);
++                ev->mouse_moved.drag = false;
++                ev->mouse_moved.time_ms = t + m * 40;
++                [queue postEvent:ev];
++                macdrv_release_event(ev);
++            }
++            /* web pages want to see the pointer over a button (hover) before it is clicked */
++            [self retain];
++            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 600 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
++                int i;
++                for (i = 0; i < 2; i++)
++                {
++                    macdrv_event *b = macdrv_create_event(MOUSE_BUTTON, self);
++                    b->mouse_button.button = 0;
++                    b->mouse_button.pressed = (i == 0);
++                    b->mouse_button.x = floor(pt.x);
++                    b->mouse_button.y = floor(pt.y);
++                    b->mouse_button.time_ms = t + 600 + i * 60;
++                    [queue postEvent:b];
++                    macdrv_release_event(b);
++                }
++                [self release];
++            });
++            return;
++        }
++        [self wine_pressKeys:spec];
++    }
++
++    - (void) wine_pressKeys:(NSString*)keySpec
++    {
++        static const struct { const char *name; uint16_t code; } keys[] = {
++            {"a",0x00},{"s",0x01},{"d",0x02},{"f",0x03},{"h",0x04},{"g",0x05},{"z",0x06},{"x",0x07},
++            {"c",0x08},{"v",0x09},{"b",0x0B},{"q",0x0C},{"w",0x0D},{"e",0x0E},{"r",0x0F},{"y",0x10},
++            {"t",0x11},{"1",0x12},{"2",0x13},{"3",0x14},{"4",0x15},{"6",0x16},{"5",0x17},{"9",0x19},
++            {"7",0x1A},{"8",0x1C},{"0",0x1D},{"o",0x1F},{"u",0x20},{"i",0x22},{"p",0x23},{"l",0x25},
++            {"j",0x26},{"k",0x28},{"n",0x2D},{"m",0x2E},{"enter",0x24},{"tab",0x30},{"space",0x31},
++            {"plus",0x18},{"minus",0x1B},
++            {"backspace",0x33},{"esc",0x35},{"delete",0x75},{"home",0x73},{"end",0x77},{"pageup",0x74},
++            {"pagedown",0x79},{"left",0x7B},{"right",0x7C},{"down",0x7D},{"up",0x7E},
++            {"f1",0x7A},{"f2",0x78},{"f3",0x63},{"f4",0x76},{"f5",0x60},{"f6",0x61},{"f7",0x62},
++            {"f8",0x64},{"f9",0x65},{"f10",0x6D},{"f11",0x67},{"f12",0x6F},
++        };
++        NSString *spec = [keySpec lowercaseString];
++        uint16_t mods[3], key = 0xffff;
++        NSUInteger flags = 0, nmods = 0, i;
++
++        for (NSString *part in [spec componentsSeparatedByString:@"+"])
++        {
++            if ([part isEqualToString:@"ctrl"]) { mods[nmods++] = 0x3B; flags |= NSEventModifierFlagControl; }
++            else if ([part isEqualToString:@"shift"]) { mods[nmods++] = 0x38; flags |= NSEventModifierFlagShift; }
++            /* Alt: the driver turns the Command key into Alt (Option types characters on a Mac) */
++            else if ([part isEqualToString:@"alt"]) { mods[nmods++] = 0x37; flags |= NSEventModifierFlagCommand; }
++            else for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
++                if ([part isEqualToString:@(keys[i].name)]) key = keys[i].code;
++            if (nmods == 3) break;
++        }
++        if (key == 0xffff) return;
++        for (i = 0; i < nmods; i++) [self postKey:mods[i] pressed:YES modifiers:flags event:nil];
++        [self postKey:key pressed:YES modifiers:flags event:nil];
++        [self postKey:key pressed:NO modifiers:flags event:nil];
++        for (i = nmods; i-- > 0;) [self postKey:mods[i] pressed:NO modifiers:0 event:nil];
++    }
++
+     // Indicates if the window would be visible if the app were not hidden.
+     - (BOOL) wouldBeVisible
+     {
+@@ -2294,8 +2864,22 @@
+ 
+     - (BOOL) validateMenuItem:(NSMenuItem *)menuItem
+     {
+-        BOOL ret = [super validateMenuItem:menuItem];
++        BOOL ret;
+ 
++        if ([menuItem action] == @selector(wine_toggleProgramTitleBar:) ||
++            [menuItem action] == NSSelectorFromString(@"programTitleBarToggle:"))
++        {
++            [menuItem setState:programTitleBarShown || !lastFeatures.mac_titlebar ? NSControlStateValueOn : NSControlStateValueOff];
++            return lastFeatures.mac_titlebar;
++        }
++        if ([menuItem action] == @selector(wine_programShortcut:))
++            return !self.disabled;
++        /* programs with their own title bar: zoom (maximize/restore) and minimize as on Windows */
++        if (([menuItem action] == @selector(performZoom:) || [menuItem action] == @selector(performMiniaturize:)) &&
++            (titlebarOverlay || (lastFeatures.resizable && !lastFeatures.title_bar)))
++            return !self.disabled;
++        ret = [super validateMenuItem:menuItem];
++
+         if ([menuItem action] == @selector(makeKeyAndOrderFront:))
+             ret = [self isKeyWindow] || (!self.disabled && !self.noForeground);
+         if ([menuItem action] == @selector(toggleFullScreen:) && (self.disabled || maximized))
+@@ -2319,6 +2903,30 @@
+     - (void) sendEvent:(NSEvent*)event
+     {
+         NSEventType type = event.type;
++        /* WinApps: buttons of the Mac title bar act on mouse-down; the driver's own mouse
++           handling can swallow the mouse-up that a normal button needs */
++        if (type == NSEventTypeLeftMouseDown && titlebarOverlay)
++        {
++            NSView *frameView = [titlebarOverlay superview];
++            NSView *hit = [frameView hitTest:[frameView convertPoint:event.locationInWindow fromView:nil]];
++            if ([hit isKindOfClass:[NSButton class]] && [hit isDescendantOf:titlebarOverlay])
++            {
++                NSButton *b = (NSButton *)hit;
++                if ([b isEnabled])
++                {
++                    /* pressed look, as a real button would show until the mouse-up */
++                    [b highlight:YES];
++                    [b displayIfNeeded];
++                    [b retain];
++                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 120 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
++                        [b highlight:NO];
++                        [b release];
++                    });
++                    [(WineMacTitleBar *)titlebarOverlay buttonPressed:b];
++                }
++                return;
++            }
++        }
+ 
+         /* NSWindow consumes certain key-down events as part of Cocoa's keyboard
+            interface control.  For example, Control-Tab switches focus among
+--- a/dlls/winemac.drv/cocoa_window.h
++++ b/dlls/winemac.drv/cocoa_window.h
+@@ -25,6 +25,20 @@
+ @class WineEventQueue;
+ 
+ 
++@class WineWindow;
++
++/* WinApps: Mac title bar laid over a program's own title bar */
++@interface WineMacTitleBar : NSVisualEffectView
++{
++    WineWindow* owner;
++    NSButton* buttons[3];
++    NSTextField* label;
++    NSView* trafficLights;
++    NSMutableArray* toolbar;
++}
++- (void) buttonPressed:(NSButton *)sender;
++@end
++
+ @interface WineWindow : NSPanel <NSWindowDelegate>
+ {
+     BOOL disabled;
+@@ -58,6 +72,11 @@
+     BOOL resizingFromLeft, resizingFromTop;
+ 
+     void* ime_update;
++
++    /* WinApps: Mac title bar over the program's own one */
++    struct macdrv_window_features lastFeatures;
++    BOOL programTitleBarShown;
++    NSView* titlebarOverlay;
+     BOOL commandDone;
+ 
+     NSSize savedContentMinSize;
+@@ -109,4 +128,8 @@
+ 
+     - (void) setRetinaMode:(BOOL)mode;
+ 
++    - (void) wine_toggleMaximized;
++
++    - (BOOL) wine_pointInMacTitleBar:(NSPoint)screenPoint;
++    - (void) wine_runAction:(NSString*)spec;
+ @end
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -121,6 +121,154 @@
+ 
+ static volatile int macdrv_helper_process;
+ 
++/* WinApps: a program icon on the white "squircle" plate of macOS app icons (Apple's 1024 grid:
++   824 plate, soft shadow); same drawing as winapps/icon-frame.swift */
++static NSImage *winapps_framed_icon(NSImage *icon)
++{
++    NSImage *framed = [NSImage imageWithSize:NSMakeSize(1024, 1024) flipped:NO drawingHandler:^BOOL(NSRect r) {
++        CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
++        CGMutablePathRef path = CGPathCreateMutable();
++        CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
++        CGFloat comps[] = {1, 1, 1, 1, 0.925, 0.93, 0.945, 1}, locs[] = {0, 1};
++        CGGradientRef grad = CGGradientCreateWithColorComponents(cs, comps, locs, 2);
++        NSSize sz = icon.size;
++        CGFloat side, scale;
++        int i;
++
++        for (i = 0; i < 1440; i++)   /* superellipse |x|^5 + |y|^5 = 1 */
++        {
++            double t = i / 1440.0 * 2 * M_PI, c = cos(t), s = sin(t);
++            CGFloat x = 512 + 412 * copysign(pow(fabs(c), 0.4), c), y = 512 + 412 * copysign(pow(fabs(s), 0.4), s);
++            if (i) CGPathAddLineToPoint(path, NULL, x, y); else CGPathMoveToPoint(path, NULL, x, y);
++        }
++        CGPathCloseSubpath(path);
++
++        CGContextSaveGState(ctx);
++        CGContextSetShadowWithColor(ctx, CGSizeMake(0, -10), 24, [[NSColor colorWithWhite:0 alpha:0.28] CGColor]);
++        CGContextAddPath(ctx, path);
++        CGContextSetGrayFillColor(ctx, 1, 1);
++        CGContextFillPath(ctx);
++        CGContextRestoreGState(ctx);
++
++        CGContextSaveGState(ctx);
++        CGContextAddPath(ctx, path);
++        CGContextClip(ctx);
++        CGContextDrawLinearGradient(ctx, grad, CGPointMake(0, 924), CGPointMake(0, 100), 0);
++        CGContextRestoreGState(ctx);
++
++        CGContextAddPath(ctx, path);
++        CGContextSetGrayStrokeColor(ctx, 0, 0.10);
++        CGContextSetLineWidth(ctx, 2);
++        CGContextStrokePath(ctx);
++
++        side = 560;
++        CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
++        if (MAX(sz.width, sz.height) > 0 && MAX(sz.width, sz.height) < 128)
++        {
++            side = floor(560 / MAX(sz.width, sz.height)) * MAX(sz.width, sz.height);   /* small icons: whole factor */
++            CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
++        }
++        scale = side / MAX(1, MAX(sz.width, sz.height));
++        CGContextSaveGState(ctx);
++        CGContextSetShadowWithColor(ctx, CGSizeMake(0, -4), 10, [[NSColor colorWithWhite:0 alpha:0.18] CGColor]);
++        [icon drawInRect:NSMakeRect((1024 - sz.width * scale) / 2, (1024 - sz.height * scale) / 2, sz.width * scale, sz.height * scale)
++                fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
++        CGContextRestoreGState(ctx);
++
++        CGGradientRelease(grad);
++        CGColorSpaceRelease(cs);
++        CGPathRelease(path);
++        return YES;
++    }];
++    return framed;
++}
++
++/* WinApps: program menus for the Mac menu bar (see macdrv_main.c, MacMenu) */
++static NSString *program_menus_recipe;
++static NSString *program_name;
++
++void macdrv_set_program_name(const char *name)
++{
++    NSString *s = [[NSString alloc] initWithUTF8String:name];
++    if ([s length]) { [program_name release]; program_name = s; }
++    else [s release];
++}
++
++/* WinApps: without a .app of its own, the process would show the engine's binary name in the
++   Dock, Cmd-Tab and the menu bar: register the program's name with Launch Services instead */
++static void name_process_after_program(void)
++{
++    typedef CFTypeRef (*get_asn_t)(void);
++    typedef OSStatus (*set_info_t)(int, CFTypeRef, CFStringRef, CFTypeRef, CFDictionaryRef *);
++    static void *ls;
++    get_asn_t get_asn;
++    set_info_t set_info;
++    CFStringRef *key;
++
++    if (!program_name || [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleIconFile"]) return;
++    [[NSProcessInfo processInfo] setProcessName:program_name];
++    if (!ls) ls = dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_LAZY);
++    if (!ls) return;
++    get_asn = (get_asn_t)dlsym(ls, "_LSGetCurrentApplicationASN");
++    set_info = (set_info_t)dlsym(ls, "_LSSetApplicationInformationItem");
++    key = (CFStringRef *)dlsym(ls, "_kLSDisplayNameKey");
++    if (get_asn && set_info && key && *key)
++    {
++        CFTypeRef asn = get_asn();
++        if (asn) set_info(-2 /* kLSDefaultSessionID */, asn, *key, (CFStringRef)program_name, NULL);
++    }
++}
++static BOOL program_menus_installed, program_titlebar_toggle_installed;
++
++void macdrv_set_program_menus(const char *recipe)
++{
++    NSString *s = [[NSString alloc] initWithUTF8String:recipe];
++    if ([s length]) program_menus_recipe = s;
++    else [s release];
++}
++
++static BOOL prefers_portuguese(void)
++{
++    NSString *lang = [[NSLocale preferredLanguages] firstObject];
++    return [lang hasPrefix:@"pt"];
++}
++
++static NSMenuItem *program_menu_item(NSString *title, NSString *keys)
++{
++    NSMenuItem *item = [[[NSMenuItem alloc] initWithTitle:title action:@selector(programMenuAction:) keyEquivalent:@""] autorelease];
++    NSArray *parts = [[keys lowercaseString] componentsSeparatedByString:@"+"];
++    NSString *key = [parts lastObject];
++    NSEventModifierFlags mask = 0;
++
++    item.representedObject = keys;
++    item.target = [WineApplicationController sharedController];
++    /* shown as the Mac shortcut: Ctrl is Command for the user (⌘C = Ctrl+C) */
++    if ([parts containsObject:@"ctrl"]) mask |= NSEventModifierFlagCommand;
++    if ([parts containsObject:@"shift"]) mask |= NSEventModifierFlagShift;
++    if ([parts containsObject:@"alt"]) mask |= NSEventModifierFlagOption;
++    if ([key isEqualToString:@"plus"]) key = @"+";
++    else if ([key isEqualToString:@"minus"]) key = @"-";
++    /* not the Mac's own ⌘H/⌘Q/⌘W/⌘M (hide, quit, close, minimize): only the menu item */
++    if (mask == NSEventModifierFlagCommand && [key length] == 1 && [@"hqwm" rangeOfString:key].location != NSNotFound)
++        return item;
++    if ([key length] == 1 && mask)
++    {
++        item.keyEquivalent = key;
++        item.keyEquivalentModifierMask = mask;
++    }
++    else if ([key length] >= 2 && [key characterAtIndex:0] == 'f')
++    {
++        int n = [[key substringFromIndex:1] intValue];
++        if (n >= 1 && n <= 12)
++        {
++            unichar c = NSF1FunctionKey + n - 1;
++            item.keyEquivalent = [NSString stringWithCharacters:&c length:1];
++            item.keyEquivalentModifierMask = mask;
++        }
++    }
++    return item;
++}
++
+ /***********************************************************************
+  *              macdrv_set_helper_process
+  *
+@@ -131,7 +279,124 @@
+     macdrv_helper_process = helper;
+ }
+ 
++void macdrv_note_program_title_bar_window(void)
++{
++    OnMainThreadAsync(^{
++        [[WineApplicationController sharedController] installProgramMenus:YES];
++    });
++}
++
+ @implementation WineApplicationController
++
++    /* WinApps: "Menu:Item=ctrl+s;-;Item=…||Menu:…" → Mac menus that press the program's
++       keyboard shortcuts.  Programs that draw their own title bar get a standard Edit menu
++       when they have no recipe; the Window menu gets "Show the program's title bar". */
++    /* the program's window for a menu action: the key window, else the main one, else the
++       frontmost visible one (focus may be inside a child window of another process) */
++    - (WineWindow*) programWindowForMenu
++    {
++        NSWindow *w = [NSApp keyWindow];
++        if ([w isKindOfClass:[WineWindow class]]) return (WineWindow*)w;
++        w = [NSApp mainWindow];
++        if ([w isKindOfClass:[WineWindow class]]) return (WineWindow*)w;
++        for (w in [NSApp orderedWindows])
++            if ([w isKindOfClass:[WineWindow class]] && [w isVisible] && ![w isMiniaturized]) return (WineWindow*)w;
++        return nil;
++    }
++
++    - (void) programMenuAction:(NSMenuItem*)sender
++    {
++        WineWindow *w = [self programWindowForMenu];
++        if (w) [w wine_runAction:[sender representedObject]];
++    }
++
++    - (void) programTitleBarToggle:(NSMenuItem*)sender
++    {
++        WineWindow *w = [self programWindowForMenu];
++        if ([w respondsToSelector:@selector(wine_toggleProgramTitleBar:)]) [w performSelector:@selector(wine_toggleProgramTitleBar:) withObject:sender];
++    }
++
++    - (BOOL) validateMenuItem:(NSMenuItem*)item
++    {
++        if ([item action] == @selector(programTitleBarToggle:))
++        {
++            WineWindow *w = [self programWindowForMenu];
++            return w && [w validateMenuItem:item];   /* the window sets the check mark */
++        }
++        if ([item action] == @selector(programMenuAction:))
++            return [self programWindowForMenu] != nil;
++        return YES;
++    }
++
++    - (void) installProgramMenus:(BOOL)forTitleBar
++    {
++        NSMenu *main = [NSApp mainMenu];
++        NSString *recipe = program_menus_recipe;
++        NSInteger index;
++        BOOL pt = prefers_portuguese();
++
++        if (!main || [NSApp activationPolicy] != NSApplicationActivationPolicyRegular) return;
++        if (forTitleBar && !program_titlebar_toggle_installed && [NSApp windowsMenu])
++        {
++            NSMenu *wm = [NSApp windowsMenu];
++            NSMenuItem *toggle = [[[NSMenuItem alloc] initWithTitle:(pt ? @"Mostrar a Barra do Programa" : @"Show Program's Title Bar")
++                                                             action:@selector(programTitleBarToggle:)
++                                                      keyEquivalent:@""] autorelease];
++            toggle.target = self;
++            [wm insertItem:[NSMenuItem separatorItem] atIndex:0];
++            [wm insertItem:toggle atIndex:0];
++            program_titlebar_toggle_installed = YES;
++        }
++        if (program_menus_installed || (!recipe && !forTitleBar)) return;
++        if (!recipe && [main indexOfItemWithTitle:(pt ? @"Editar" : @"Edit")] < 0)
++            recipe = pt ? @"Editar:Desfazer=ctrl+z;Refazer=ctrl+y;-;Recortar=ctrl+x;Copiar=ctrl+c;Colar=ctrl+v;-;Selecionar Tudo=ctrl+a"
++                        : @"Edit:Undo=ctrl+z;Redo=ctrl+y;-;Cut=ctrl+x;Copy=ctrl+c;Paste=ctrl+v;-;Select All=ctrl+a";
++        program_menus_installed = YES;
++
++        index = [NSApp windowsMenu] ? [main indexOfItemWithSubmenu:[NSApp windowsMenu]] : -1;
++        if (index < 0) index = [main numberOfItems];
++        for (NSString *menuSpec in [recipe componentsSeparatedByString:@"||"])
++        {
++            NSRange colon = [menuSpec rangeOfString:@":"];
++            NSString *title;
++            NSMenu *submenu;
++            NSMenuItem *top;
++
++            if (colon.location == NSNotFound) continue;
++            title = [[menuSpec substringToIndex:colon.location] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
++            if ([title isEqualToString:@"@app"])
++            {
++                /* items for the application menu (the one named after the program) */
++                NSMenu *appMenu = [[main itemAtIndex:0] submenu];
++                NSInteger at = 0;
++                if (!appMenu) continue;
++                for (NSString *itemSpec in [[menuSpec substringFromIndex:colon.location + 1] componentsSeparatedByString:@";"])
++                {
++                    NSString *s = [itemSpec stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
++                    NSRange eq = [s rangeOfString:@"=" options:NSBackwardsSearch];
++                    if ([s isEqualToString:@"-"]) [appMenu insertItem:[NSMenuItem separatorItem] atIndex:at++];
++                    else if (eq.location != NSNotFound)
++                        [appMenu insertItem:program_menu_item([s substringToIndex:eq.location], [s substringFromIndex:eq.location + 1])
++                                    atIndex:at++];
++                }
++                [appMenu insertItem:[NSMenuItem separatorItem] atIndex:at];
++                continue;
++            }
++            submenu = [[[NSMenu alloc] initWithTitle:title] autorelease];
++            for (NSString *itemSpec in [[menuSpec substringFromIndex:colon.location + 1] componentsSeparatedByString:@";"])
++            {
++                NSString *s = [itemSpec stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
++                NSRange eq = [s rangeOfString:@"=" options:NSBackwardsSearch];
++                if ([s isEqualToString:@"-"]) [submenu addItem:[NSMenuItem separatorItem]];
++                else if (eq.location != NSNotFound)
++                    [submenu addItem:program_menu_item([s substringToIndex:eq.location], [s substringFromIndex:eq.location + 1])];
++            }
++            top = [[[NSMenuItem alloc] initWithTitle:title action:NULL keyEquivalent:@""] autorelease];
++            [top setSubmenu:submenu];
++            [main insertItem:top atIndex:index++];
++        }
++    }
++
+ 
+     @synthesize keyboardType, lastFlagsChanged;
+     @synthesize applicationIcon;
+@@ -265,7 +530,10 @@
+             return;
+         }
+ 
+-        if ([NSApp activationPolicy] != NSApplicationActivationPolicyRegular)
++        static BOOL menus_built;
++        /* WinApps: a program opened from its shortcut (a real .app) starts as a regular app:
++           still build the menu bar (app menu, Window menu, program menus) once */
++        if ([NSApp activationPolicy] != NSApplicationActivationPolicyRegular || !menus_built)
+         {
+             NSMenu* mainMenu;
+             NSMenu* submenu;
+@@ -274,10 +542,14 @@
+             NSMenuItem* item;
+ 
+             BOOL wasAccessory = ([NSApp activationPolicy] == NSApplicationActivationPolicyAccessory);
++            BOOL alreadyRegular = ([NSApp activationPolicy] == NSApplicationActivationPolicyRegular);
+ 
+-            [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
++            menus_built = YES;
++            name_process_after_program();
++            if (!alreadyRegular)
++                [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+ 
+-            if (activateIfTransformed)
++            if (activateIfTransformed && !alreadyRegular)
+                 [self tryToActivateIgnoringOtherApps:YES];
+ 
+             if (!enable_app_nap && !wasAccessory)
+@@ -289,8 +561,11 @@
+             mainMenu = [[[NSMenu alloc] init] autorelease];
+ 
+             // Application menu
+-            submenu = [[[NSMenu alloc] initWithTitle:WineLocalizedString(STRING_MENU_WINE)] autorelease];
+             bundleName = [[NSBundle mainBundle] objectForInfoDictionaryKey:(NSString*)kCFBundleNameKey];
++            /* WinApps: the program's name, never the engine's */
++            if (![bundleName length] || [bundleName isEqualToString:@"Wine Staging"] || [bundleName isEqualToString:@"Wine"])
++                bundleName = program_name;
++            submenu = [[[NSMenu alloc] initWithTitle:([bundleName length] ? bundleName : @"")] autorelease];
+ 
+             if ([bundleName length])
+                 title = [NSString stringWithFormat:WineLocalizedString(STRING_MENU_ITEM_HIDE_APPNAME), bundleName];
+@@ -316,7 +591,7 @@
+             item = [submenu addItemWithTitle:title action:@selector(terminate:) keyEquivalent:@"q"];
+             [item setKeyEquivalentModifierMask:NSEventModifierFlagCommand | NSEventModifierFlagOption];
+             item = [[[NSMenuItem alloc] init] autorelease];
+-            [item setTitle:WineLocalizedString(STRING_MENU_WINE)];
++            [item setTitle:([bundleName length] ? bundleName : @"")];
+             [item setSubmenu:submenu];
+             [mainMenu addItem:item];
+ 
+@@ -345,6 +620,7 @@
+ 
+             [NSApp setMainMenu:mainMenu];
+             [NSApp setWindowsMenu:submenu];
++            if (program_menus_recipe) [self installProgramMenus:NO];
+ 
+             [NSApp setApplicationIconImage:self.applicationIcon];
+         }
+@@ -1132,6 +1408,14 @@
+                 nsimage = nil;
+         }
+ 
++        /* WinApps: every program looks like a Mac app in the Dock.  A shortcut (.app) already
++           has its icon in the macOS format: keep it instead of the window's raw Windows icon.
++           Without one, put the program's icon on the same white macOS plate. */
++        if ([[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleIconFile"])
++            nsimage = nil;
++        else if (nsimage)
++            nsimage = winapps_framed_icon(nsimage);
++
+         self.applicationIcon = nsimage;
+     }
+ 
+@@ -1575,6 +1859,9 @@
+                     NSPoint nspoint = [self flippedMouseLocation:NSPointFromCGPoint(pt)];
+                     NSRect contentRect = [window contentRectForFrameRect:[window frame]];
+                     process = NSMouseInRect(nspoint, contentRect, NO);
++                    /* WinApps: clicks on the Mac title bar are not the program's */
++                    if (process && [window wine_pointInMacTitleBar:nspoint])
++                        process = FALSE;
+                     if (process && [window styleMask] & NSWindowStyleMaskResizable)
+                     {
+                         // Ignore clicks in the grow box (resize widget).
+--- a/dlls/winemac.drv/cocoa_app.h
++++ b/dlls/winemac.drv/cocoa_app.h
+@@ -136,6 +136,8 @@
+     - (BOOL) handleEvent:(NSEvent*)anEvent;
+     - (void) didSendEvent:(NSEvent*)anEvent;
+ 
++    - (void) installProgramMenus:(BOOL)forTitleBar;
++
+ @end
+ 
+ 
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -113,7 +113,9 @@
+ extern bool use_precise_scrolling;
+ extern int gl_surface_mode;
+ extern CFDictionaryRef localized_strings;
+-extern bool native_menubar;  /* Mirror the window menu in the macOS menu bar (NativeMenuBar). */
++extern bool native_menubar;
++extern bool mac_title_bar;
++extern unsigned int program_titlebar_points;  /* WinApps: TitleBarHeight from the program's recipe */  /* WinApps: Mac title bar for programs that draw their own (MacTitleBar) */  /* Mirror the window menu in the macOS menu bar (NativeMenuBar). */
+ extern bool retina_enabled;  /* Whether Retina mode is enabled via registry setting. */
+ extern bool retina_on;       /* Whether Retina mode is currently active (enabled and display is in default mode). */
+ extern bool enable_app_nap;
+@@ -194,6 +196,10 @@
+ extern void macdrv_beep(void);
+ extern void macdrv_set_application_icon(CFArrayRef images);
+ extern void macdrv_set_helper_process(int helper);
++extern void macdrv_set_program_menus(const char *recipe);
++extern void macdrv_set_titlebar_buttons(const char *recipe);
++extern void macdrv_set_program_name(const char *name);
++extern void macdrv_note_program_title_bar_window(void);
+ extern void macdrv_quit_reply(int reply);
+ extern bool macdrv_using_input_method(void);
+ extern void macdrv_set_mouse_capture_window(WineWindow *window);
+@@ -462,6 +468,8 @@
+     unsigned int    utility:1;
+     unsigned int    shadow:1;
+     unsigned int    prevents_app_activation:1;
++    unsigned int    mac_titlebar:1;     /* WinApps: Mac title bar over the program's own one */
++    unsigned int    titlebar_height:8;  /* height of the program's title bar, in points */
+ };
+ 
+ struct macdrv_window_state {
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -53,6 +53,8 @@
+ int gl_surface_mode = GL_SURFACE_IN_FRONT_OPAQUE;
+ bool retina_enabled = false;
+ bool native_menubar = false;
++bool mac_title_bar = true;
++unsigned int program_titlebar_points = 0;
+ bool enable_app_nap = false;
+ bool group_helper_processes = true;
+  bool force_backing_store = FALSE;
+@@ -285,8 +287,22 @@
+     if ((p = wcsrchr(appname, '\\'))) appname = p + 1;
+     len = lstrlenW(appname);
+ 
++    /* WinApps: the program's name for the Dock and the menu bar when it runs without its own
++       .app (never the engine's binary name) */
+     if (len && len < MAX_PATH)
+     {
++        char name[MAX_PATH * 3];
++        int n = ntdll_wcstoumbs(appname, len, name, sizeof(name) - 1, FALSE);
++        if (n > 0)
++        {
++            name[n] = 0;
++            if (n > 4 && !strcasecmp(name + n - 4, ".exe")) name[n - 4] = 0;
++            macdrv_set_program_name(name);
++        }
++    }
++
++    if (len && len < MAX_PATH)
++    {
+         HKEY tmpkey;
+         memcpy(buffer, appname, len * sizeof(WCHAR));
+         memcpy(buffer + len, macdriverW, sizeof(macdriverW));
+@@ -352,6 +368,45 @@
+     if (!get_config_key(hkey, appkey, "NativeMenuBar", buffer, sizeof(buffer)))
+         native_menubar = IS_OPTION_TRUE(buffer[0]);
+ 
++    if (!get_config_key(hkey, appkey, "MacTitleBar", buffer, sizeof(buffer)))
++        mac_title_bar = IS_OPTION_TRUE(buffer[0]);
++
++    /* programs whose title bar is drawn by a browser (WebView2: Power BI…) cannot tell its height
++       through WM_NCHITTEST: their recipe gives it, in points */
++    if (appkey && !get_config_key(0, appkey, "TitleBarHeight", buffer, sizeof(buffer)))
++    {
++        unsigned int v = 0;
++        WCHAR *q;
++        for (q = buffer; *q >= '0' && *q <= '9'; q++) v = v * 10 + (*q - '0');
++        if (v >= 16 && v <= 255) program_titlebar_points = v;
++    }
++
++    /* WinApps: menus for the Mac menu bar ("Menu:Item=ctrl+s;-;Item2=ctrl+z||Menu2:…"), from the
++       program's recipe; they press the program's own keyboard shortcuts */
++    {
++        static const WCHAR macmenuW[] = {'M','a','c','M','e','n','u',0};
++        static const WCHAR buttonsW[] = {'T','i','t','l','e','B','a','r','B','u','t','t','o','n','s',0};
++        static char raw[16384], utf8[8192];
++        KEY_VALUE_PARTIAL_INFORMATION *info = (void *)raw;
++        HKEY keys[2] = {appkey, hkey};
++        int i, len;
++        for (i = 0; i < 2; i++)
++        {
++            if (keys[i] && query_reg_value(keys[i], macmenuW, info, sizeof(raw)) && info->Type == REG_SZ)
++            {
++                len = ntdll_wcstoumbs((WCHAR *)info->Data, info->DataLength / sizeof(WCHAR), utf8, sizeof(utf8) - 1, FALSE);
++                if (len > 0) { utf8[len] = 0; macdrv_set_program_menus(utf8); }
++                break;
++            }
++        }
++        /* buttons on the Mac title bar: "Label=action@sf.symbol;…||right side…" */
++        if (appkey && query_reg_value(appkey, buttonsW, info, sizeof(raw)) && info->Type == REG_SZ)
++        {
++            len = ntdll_wcstoumbs((WCHAR *)info->Data, info->DataLength / sizeof(WCHAR), utf8, sizeof(utf8) - 1, FALSE);
++            if (len > 0) { utf8[len] = 0; macdrv_set_titlebar_buttons(utf8); }
++        }
++    }
++
+     if (!get_config_key(hkey, appkey, "OpenGLSurfaceMode", buffer, sizeof(buffer)))
+     {
+         static const WCHAR transparentW[] = {'t','r','a','n','s','p','a','r','e','n','t',0};
+--- a/dlls/winemac.drv/macdrv.h
++++ b/dlls/winemac.drv/macdrv.h
+@@ -243,6 +243,8 @@
+     unsigned int        per_pixel_alpha : 1;    /* is window using per-pixel alpha? */
+     unsigned int        minimized : 1;          /* is window minimized? */
+     unsigned int        fullscreen : 1;         /* is the window visible rect fullscreen? (unrelated to native AppKit/Cocoa fullscreen) */
++    unsigned int        titlebar_points : 8;    /* WinApps: measured height of the program's own title bar */
++    unsigned int        titlebar_tries : 5;     /* WinApps: measurements attempted */
+ };
+ 
+ struct remote_header;

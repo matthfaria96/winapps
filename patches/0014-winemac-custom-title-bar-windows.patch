@@ -1,0 +1,221 @@
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -88,7 +88,23 @@
+     struct macdrv_window_features wf = {0};
+ 
+     if (ex_style & WS_EX_NOACTIVATE) wf.prevents_app_activation = TRUE;
+-    if (EqualRect(&data->rects.window, &data->rects.visible)) return wf;
++    if (EqualRect(&data->rects.window, &data->rects.visible))
++    {
++        /* WinApps: the program draws its own title bar (WM_NCCALCSIZE gives it the whole
++           window: Power BI, Office, Chromium/Electron apps…).  There is no Mac frame to show,
++           but it is still a normal resizable window: give it the Mac shadow and let macOS
++           resize, minimize and tile it (Window menu, Fill/Center, tiling shortcuts). */
++        if ((style & WS_THICKFRAME) && !(style & WS_CHILD) && !data->shaped &&
++            !(ex_style & (WS_EX_LAYERED | WS_EX_TOOLWINDOW)) &&
++            ((style & WS_CAPTION) == WS_CAPTION || !(style & WS_POPUP)))
++        {
++            wf.shadow = TRUE;
++            wf.resizable = TRUE;
++            if (style & WS_MINIMIZEBOX) wf.minimize_button = TRUE;
++            if (style & WS_MAXIMIZEBOX) wf.maximize_button = TRUE;
++        }
++        return wf;
++    }
+ 
+     return get_window_features_for_style(style, ex_style, data->shaped);
+ }
+@@ -979,11 +995,37 @@
+     HMONITOR mon = 0;
+     MONITORINFO info;
+ 
+-    if ((style & (WS_MINIMIZE | WS_MAXIMIZE)) || !IsWindowVisible(hwnd)) return -1;
++    BOOL restore_pending = FALSE;
++    POINT startPoint;
++
++    if ((style & WS_MINIMIZE) || !NtUserIsWindowVisible(hwnd)) return -1;
+     if (hittest && hittest != HTCAPTION) return -1;
++    /* WinApps: like Windows, dragging the title bar of a maximized window restores it
++       under the mouse (programs with their own title bar start maximized and could not
++       be moved or resized at all) */
++    if (style & WS_MAXIMIZE)
++    {
++        if (!hittest || !(style & WS_THICKFRAME)) return -1;
++        restore_pending = TRUE;
++    }
++    else if (hittest == HTCAPTION)
++    {
++        /* WinApps: a drag by the title bar is done on the Mac side, in Mac coordinates
++           (the loop below moves DPI-unaware programs at half the mouse speed on Retina
++           screens) and snaps like the drag of a maximized window */
++        struct macdrv_win_data *data = get_win_data(hwnd);
++        WineWindow *cocoa = data ? data->cocoa_window : NULL;
++        if (data) release_win_data(data);
++        if (cocoa)
++        {
++            macdrv_window_follow_mouse(cocoa, -1, -1);
++            return 0;
++        }
++    }
+ 
+     capturePoint.x = (short)LOWORD(dwPoint);
+     capturePoint.y = (short)HIWORD(dwPoint);
++    startPoint = capturePoint;
+     NtUserClipCursor(NULL);
+ 
+     TRACE("hwnd %p hittest %d, pos %d,%d\n", hwnd, hittest, capturePoint.x, capturePoint.y);
+@@ -994,7 +1036,9 @@
+     else
+         captionHeight = 0;
+ 
+-    NtUserGetWindowRect(hwnd, &origRect, NtUserGetWinMonitorDpi(hwnd, MDT_DEFAULT));
++    /* WinApps: in the coordinates of the mouse and of set_window_pos (the window's DPI), or a
++       DPI-unaware program on a Retina screen moves at half the speed of the mouse */
++    NtUserGetWindowRect(hwnd, &origRect, NtUserGetDpiForWindow(hwnd));
+     movedRect = origRect;
+ 
+     if (!hittest)
+@@ -1053,6 +1097,29 @@
+         }
+ 
+         pt = msg.pt;
++
++        if (restore_pending)
++        {
++            RECT work = mon ? info.rcWork : desktopRect;
++            struct macdrv_win_data *data;
++            double fracX, fracY;
++
++            if (msg.message != WM_MOUSEMOVE || (abs(pt.x - startPoint.x) < 6 && abs(pt.y - startPoint.y) < 6))
++                continue;   /* a click (or double click) on the bar is not a drag */
++            /* where the mouse was on the maximized window (it covered the work area) */
++            fracX = (double)(startPoint.x - work.left) / max(1, work.right - work.left);
++            fracY = (double)(startPoint.y - work.top) / max(1, work.bottom - work.top);
++            NtUserShowWindow(hwnd, SW_RESTORE);
++            /* the rest of the drag happens on the Mac side, in Mac coordinates, like the
++               drag of a normal window (and it snaps the same way when released) */
++            if ((data = get_win_data(hwnd)))
++            {
++                if (data->cocoa_window) macdrv_window_follow_mouse(data->cocoa_window, fracX, fracY);
++                release_win_data(data);
++            }
++            moved = TRUE;
++            break;
++        }
+ 
+         if (msg.message == WM_KEYDOWN) switch(msg.wParam)
+         {
+@@ -1137,6 +1204,22 @@
+     {
+         set_window_pos(hwnd, 0, origRect.left, origRect.top, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER);
+     }
++    /* WinApps: snap like Windows (and macOS tiling): released at the left or right edge of the
++       screen -> that half of it; at the top (menu bar) -> maximized */
++    else if (moved && msg.message == WM_LBUTTONUP && (NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_THICKFRAME) &&
++             (mon = monitor_from_point(msg.pt, MONITOR_DEFAULTTONEAREST)) && NtUserGetMonitorInfo(mon, &info))
++    {
++        RECT work = info.rcWork;
++        int half = (work.right - work.left) / 2;
++
++        if (msg.pt.y <= info.rcMonitor.top + 2 || msg.pt.y <= work.top)
++            NtUserShowWindow(hwnd, SW_MAXIMIZE);
++        else if (msg.pt.x <= info.rcMonitor.left + 1)
++            set_window_pos(hwnd, 0, work.left, work.top, half, work.bottom - work.top, SWP_NOACTIVATE | SWP_NOZORDER);
++        else if (msg.pt.x >= info.rcMonitor.right - 2)
++            set_window_pos(hwnd, 0, work.left + half, work.top, work.right - work.left - half, work.bottom - work.top,
++                           SWP_NOACTIVATE | SWP_NOZORDER);
++    }
+ 
+     return 0;
+ }
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -77,7 +77,13 @@
+         if (wf->resizable || wf->maximize_button) style_mask |= NSWindowStyleMaskResizable;
+         if (wf->utility) style_mask |= NSWindowStyleMaskUtilityWindow;
+     }
+-    else style_mask = NSWindowStyleMaskBorderless;
++    else
++    {
++        style_mask = NSWindowStyleMaskBorderless;
++        /* WinApps: program with its own title bar (see get_cocoa_window_features) */
++        if (wf->resizable) style_mask |= NSWindowStyleMaskResizable;
++        if (wf->minimize_button) style_mask |= NSWindowStyleMaskMiniaturizable;
++    }
+ 
+     if (wf->prevents_app_activation) style_mask |= NSWindowStyleMaskNonactivatingPanel;
+ 
+@@ -3186,6 +3192,63 @@
+ }
+ 
+ /***********************************************************************
++ *              macdrv_window_follow_mouse
++ *
++ * WinApps: a maximized window was restored by dragging its title bar.  Keep it under the
++ * mouse (at the same relative spot) until the button is released, then snap like macOS
++ * tiling / Windows: top of the screen -> maximized, left or right edge -> half.
++ */
++void macdrv_window_follow_mouse(WineWindow *window, double frac_x, double frac_y)
++{
++    [window retain];
++    OnMainThreadAsync(^{
++        __block id monitor = nil;
++        /* frac_x < 0: keep the mouse where it is now on the window (normal drag) */
++        NSPoint m0 = [NSEvent mouseLocation];
++        NSRect f0 = window.frame;
++        double fx = frac_x >= 0 ? frac_x : (m0.x - NSMinX(f0)) / MAX(1, NSWidth(f0));
++        CGFloat fixed_off_y = NSMaxY(f0) - m0.y;
++        void (^place)(void) = ^{
++            NSPoint m = [NSEvent mouseLocation];
++            NSRect f = window.frame;
++            NSScreen *screen = window.screen ?: [NSScreen mainScreen];
++            CGFloat off_y = frac_x >= 0 ? MIN(frac_y * NSHeight(screen.visibleFrame), NSHeight(f) / 2) : fixed_off_y;
++            [window setFrameTopLeftPoint:NSMakePoint(m.x - fx * NSWidth(f), m.y + off_y)];
++        };
++
++        place();
++        monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp
++                                                        handler:^NSEvent *(NSEvent *event) {
++            place();
++            if (event.type == NSEventTypeLeftMouseUp)
++            {
++                NSPoint m = [NSEvent mouseLocation];
++                NSScreen *s = nil;
++                for (NSScreen *sc in [NSScreen screens]) if (NSMouseInRect(m, sc.frame, NO)) s = sc;
++                if (s)
++                {
++                    NSRect vf = s.visibleFrame, sf = s.frame;
++                    if (m.y >= NSMaxY(vf) - 1)
++                    {
++                        macdrv_event *ev = macdrv_create_event(WINDOW_MAXIMIZE_REQUESTED, window);
++                        [window.queue postEvent:ev];
++                        macdrv_release_event(ev);
++                    }
++                    else if (m.x <= NSMinX(sf) + 1)
++                        [window setFrame:NSMakeRect(NSMinX(vf), NSMinY(vf), NSWidth(vf) / 2, NSHeight(vf)) display:YES];
++                    else if (m.x >= NSMaxX(sf) - 2)
++                        [window setFrame:NSMakeRect(NSMidX(vf), NSMinY(vf), NSWidth(vf) / 2, NSHeight(vf)) display:YES];
++                }
++                [NSEvent removeMonitor:monitor];
++                [window release];
++            }
++            return event;
++        }];
++    });
++}
++
++
++/***********************************************************************
+  *              macdrv_order_cocoa_window
+  *
+  * Reorder a Cocoa window relative to other windows.  If prev is
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -494,6 +494,7 @@
+         const struct macdrv_window_state* state);
+ extern void macdrv_set_cocoa_window_title(WineWindow *window, const UniChar* title,
+         size_t length);
++extern void macdrv_window_follow_mouse(WineWindow *window, double frac_x, double frac_y);
+ extern void macdrv_order_cocoa_window(WineWindow *window, WineWindow *prev,
+         WineWindow *next, bool activate);
+ extern void macdrv_hide_cocoa_window(WineWindow *window);

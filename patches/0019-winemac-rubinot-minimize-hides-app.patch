@@ -1,0 +1,34 @@
+From: Native WinApps <rubinot@localhost>
+Subject: [PATCH 19] winemac: minimizar o RubinOT esconde o app em vez de miniaturizar
+
+O cliente do RubinOT (classe "config") nao recria o estado grafico ao voltar do
+Dock: a janela fica em branco para sempre depois de minimizar (medido: 93% de
+fundo chapado + bloco branco 256x128; nao recupera com resize/hide/show).
+
+Esconder o app (equivalente a Cmd+H) e seguro: o cliente continua rodando e a
+imagem volta intacta. Este patch faz o botao amarelo / Cmd+M esconder o app nas
+janelas cujo titulo comeca com "RubinOT" (o clique no Dock traz de volta).
+
+Aplicar em: dlls/winemac.drv/cocoa_window.m
+
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -3023,8 +3023,18 @@
+     }
+ 
+     - (void) miniaturize:(id)sender
+     {
++        /* WinApps: minimizar quebra o render de alguns jogos (o RubinOT deixa a
++         * janela em branco para sempre ao voltar do Dock). Para essas janelas,
++         * escondemos o app (equivalente a Cmd+H): o jogo continua rodando e a
++         * janela volta intacta pelo ícone no Dock. */
++        if ([[self title] hasPrefix:@"RubinOT"])
++        {
++            [NSApp hide:nil];
++            return;
++        }
++
+         /* When Stage Manager is enabled, miniaturize: just moves the app/window to
+          * the background rather than minimizing the window.
+          * Don't start minimizing the window on the Win32 side.
+          */

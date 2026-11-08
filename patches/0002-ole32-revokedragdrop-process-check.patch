@@ -1,0 +1,40 @@
+From: Native WinApps <rubinot@localhost>
+Subject: [PATCH 2] ole32: don't RevokeDragDrop on other processes' windows
+
+O RubinOT (32-bit) enumera as janelas filhas do WebView2 (64-bit) e chama
+RevokeDragDrop nelas. A janela guarda um IDropTarget em "OleDropTargetInterface",
+mas esse ponteiro só é válido no processo que o registrou: em outro processo
+vira lixo e o IDropTarget_Release (call *0x8(vtable)) dá page fault.
+
+O RegisterDragDrop já tinha essa proteção; o RevokeDragDrop não. Este patch
+adiciona a mesma checagem de processo.
+
+Aplicar em: dlls/ole32/ole2.c
+
+--- a/dlls/ole32/ole2.c
++++ b/dlls/ole32/ole2.c
+@@ -628,6 +628,7 @@
+ HRESULT WINAPI RevokeDragDrop(HWND hwnd)
+ {
+   HANDLE map;
+   IStream *stream;
+   IDropTarget *drop_target;
+   HRESULT hr;
++  DWORD pid;
+ 
+   TRACE("(%p)\n", hwnd);
+ 
+   if (!IsWindow(hwnd))
+   {
+     ERR("invalid hwnd %p\n", hwnd);
+     return DRAGDROP_E_INVALIDHWND;
+   }
+ 
++  /* o ponteiro DropTarget guardado na janela só vale no processo que o registrou */
++  GetWindowThreadProcessId(hwnd, &pid);
++  if (pid != GetCurrentProcessId())
++    return DRAGDROP_E_INVALIDHWND;
++
+   /* no registration data */
+   if (!(map = get_droptarget_handle(hwnd)))
+     return DRAGDROP_E_NOTREGISTERED;

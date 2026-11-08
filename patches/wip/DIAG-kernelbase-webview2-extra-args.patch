@@ -1,0 +1,26 @@
+--- a/dlls/kernelbase/process.c
++++ b/dlls/kernelbase/process.c
+@@ -560,6 +560,23 @@
+         app_name = name;
+     }
+ 
++    /* WinApps DIAGNÓSTICO (não oficializar): flags extras p/ o processo principal do WebView2 */
++    {
++        static WCHAR extra[1024];
++        if (tidy_cmdline && wcsstr( app_name, L"msedgewebview2.exe" ) && !wcsstr( tidy_cmdline, L"--type=" ) &&
++            GetEnvironmentVariableW( L"WINE_WV2_EXTRA_ARGS", extra, ARRAY_SIZE(extra) ))
++        {
++            size_t len = lstrlenW( tidy_cmdline ) + lstrlenW( extra ) + 2;
++            WCHAR *n = RtlAllocateHeap( GetProcessHeap(), 0, len * sizeof(WCHAR) );
++            if (n)
++            {
++                swprintf( n, len, L"%s %s", tidy_cmdline, extra );
++                if (tidy_cmdline != cmd_line) RtlFreeHeap( GetProcessHeap(), 0, tidy_cmdline );
++                tidy_cmdline = n;
++            }
++        }
++    }
++
+     /* Warn if unsupported features are used */
+ 
+     if (flags & (IDLE_PRIORITY_CLASS | HIGH_PRIORITY_CLASS | REALTIME_PRIORITY_CLASS |

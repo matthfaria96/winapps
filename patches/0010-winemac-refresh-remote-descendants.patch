@@ -1,0 +1,153 @@
+--- a/dlls/winemac.drv/surface.c
++++ b/dlls/winemac.drv/surface.c
+@@ -233,6 +233,8 @@
+  * context id and where the child is: <dir>/<child hwnd>-<serial>.surf.
+  */
+ #include <sys/mman.h>
++#include <dirent.h>
++#include <errno.h>
+ #include <pthread.h>
+ #include <sys/stat.h>
+ #include <fcntl.h>
+@@ -295,6 +297,48 @@
+     if (!root || root == hwnd) return FALSE;
+     NtUserGetWindowThread(root, &pid);
+     return pid && pid != GetCurrentProcessId();
++}
++
++/* find a header file by name in any root directory (another process may have moved it) */
++static BOOL remote_header_find(const char *name, char *out, size_t size)
++{
++    char base[480];
++    struct dirent *entry;
++    struct stat st;
++    BOOL found = FALSE;
++    DIR *d;
++
++    macdrv_remote_surface_dir(base, sizeof(base), NULL);
++    if (!(d = opendir(base))) return FALSE;
++    while (!found && (entry = readdir(d)))
++    {
++        if (entry->d_name[0] == '.') continue;
++        snprintf(out, size, "%s/%s/%s", base, entry->d_name, name);
++        found = !stat(out, &st);
++    }
++    closedir(d);
++    return found;
++}
++
++/* windows can be moved to another root (SetParent; WebView2 hosts do this when they reuse a
++ * WebView in a dialog): keep the header in the directory of the current root, which is the
++ * one the owner of that root watches */
++static void remote_header_relocate(struct remote_header *hdr, HWND root)
++{
++    char dir[480], path[512];
++    const char *name = strrchr(hdr->path, '/');
++    size_t len;
++
++    if (!root || !name) return;
++    macdrv_remote_surface_dir(dir, sizeof(dir), root);
++    len = strlen(dir);
++    if (len == (size_t)(name - hdr->path) && !strncmp(dir, hdr->path, len)) return;
++    mkdir(dir, 0700);
++    snprintf(path, sizeof(path), "%s%s", dir, name);
++    if (rename(hdr->path, path) && !remote_header_find(name + 1, hdr->path, sizeof(hdr->path))) return;
++    if (strcmp(hdr->path, path) && rename(hdr->path, path)) return;
++    macdrv_dbg("remote header moved to %s\n", path);
++    memcpy(hdr->path, path, sizeof(path));
+ }
+ 
+ static void remote_header_update(struct remote_header *hdr, HWND hwnd)
+@@ -305,6 +349,7 @@
+     RECT rect;
+ 
+     if (!hdr->shared) return;
++    remote_header_relocate(hdr, root);
+     /* the client area, relative to the root's client area (what its Cocoa content view shows) */
+     if (!NtUserGetClientRect(hwnd, &rect, dpi)) return;
+     NtUserMapWindowPoints(hwnd, 0, (POINT *)&rect, 2, dpi);
+@@ -315,6 +360,50 @@
+     hdr->shared->height = rect.bottom - rect.top;
+     hdr->shared->visible = NtUserIsWindowVisible(hwnd);
+     __atomic_add_fetch(&hdr->shared->seq, 1, __ATOMIC_RELEASE);
++}
++
++/* A remote child's header is written by the process that owns the child, but its position and
++ * visibility also depend on ancestors owned by other processes (e.g. Chromium: the browser shows
++ * or moves Chrome_WidgetWin_1, the GPU process owns the "Intermediate D3D Window" below it).
++ * Whoever changes a child window therefore refreshes the headers of all descendants under the
++ * same root; the window functions used by remote_header_update() work across processes. */
++void macdrv_remote_refresh_descendants(HWND parent)
++{
++    HWND root, child, p;
++    char base[480], dir[700], path[800];
++    struct dirent *rent, *entry;
++    struct remote_header tmp;
++    unsigned long value;
++    DIR *rd, *d;
++    int fd;
++
++    if (!(NtUserGetWindowLongW(parent, GWL_STYLE) & WS_CHILD)) return;
++    if (!(root = NtUserGetAncestor(parent, GA_ROOT)) || root == parent) return;
++    macdrv_remote_surface_dir(base, sizeof(base), NULL);
++    if (!(rd = opendir(base))) return;
++    while ((rent = readdir(rd)))
++    {
++        if (rent->d_name[0] == '.') continue;
++        snprintf(dir, sizeof(dir), "%s/%s", base, rent->d_name);
++        if (!(d = opendir(dir))) continue;
++        while ((entry = readdir(d)))
++        {
++            if (!strstr(entry->d_name, ".surf") || sscanf(entry->d_name, "%08lx-", &value) != 1) continue;
++            child = (HWND)(ULONG_PTR)value;
++            for (p = child; p && p != parent && p != root; p = NtUserGetAncestor(p, GA_PARENT)) ;
++            if (p != parent) continue;
++            snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
++            if ((fd = open(path, O_RDWR)) < 0) continue;
++            tmp.shared = mmap(NULL, sizeof(*tmp.shared), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++            close(fd);
++            if (tmp.shared == MAP_FAILED) continue;
++            snprintf(tmp.path, sizeof(tmp.path), "%s", path);
++            if (tmp.shared->magic == REMOTE_SURFACE_MAGIC) remote_header_update(&tmp, child);
++            munmap(tmp.shared, sizeof(*tmp.shared));
++        }
++        closedir(d);
++    }
++    closedir(rd);
+ }
+ 
+ static BOOL remote_header_create(struct remote_header *hdr, HWND hwnd, unsigned int kind, unsigned int context_id)
+@@ -353,7 +442,12 @@
+ static void remote_header_destroy(struct remote_header *hdr)
+ {
+     if (hdr->shared) munmap(hdr->shared, sizeof(*hdr->shared));
+-    if (hdr->path[0]) unlink(hdr->path);
++    if (hdr->path[0] && unlink(hdr->path) && errno == ENOENT)
++    {
++        const char *name = strrchr(hdr->path, '/');
++        char path[512];
++        if (name && remote_header_find(name + 1, path, sizeof(path))) unlink(path);
++    }
+     hdr->shared = NULL;
+     hdr->path[0] = 0;
+ }
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -1654,6 +1654,7 @@
+     unsigned int new_style = NtUserGetWindowLongW(hwnd, GWL_STYLE);
+     struct window_rects old_rects;
+ 
++    macdrv_remote_refresh_descendants(hwnd);
+     if (!(data = get_win_data(hwnd))) return;
+ 
+     thread_data = macdrv_thread_data();
+--- a/dlls/winemac.drv/macdrv.h
++++ b/dlls/winemac.drv/macdrv.h
+@@ -298,6 +298,7 @@
+ extern void *macdrv_remote_metal_layer(void *handle);
+ extern void macdrv_remote_metal_release(void *handle);
+ extern void macdrv_remote_metal_update(HWND hwnd);
++extern void macdrv_remote_refresh_descendants(HWND parent);
+ extern void macdrv_remote_surface_update(HWND hwnd, struct window_surface *surface);
+ extern bool query_menu_snapshot(HWND hwnd, macdrv_query *query);
+ extern bool query_menu_command(HWND hwnd, macdrv_query *query);

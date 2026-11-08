@@ -1,0 +1,28 @@
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -241,6 +241,10 @@
+ 
+     - (void) transformProcessToForeground:(BOOL)activateIfTransformed
+     {
++        /* a window is being shown: children owned by other processes (WebView2…) must be
++           composited even if this window never becomes key (the user is in another app) */
++        macdrv_remote_surfaces_start();
++
+         /* WinApps: a helper process (started by another process of the same program that
+            already shows windows, e.g. msedgewebview2.exe under the host app) shows its
+            windows without a Dock icon / Cmd-Tab entry / menu bar of its own, so the
+@@ -3176,10 +3180,14 @@
+ 
+ static void remote_surfaces_poll(void)
+ {
++    static unsigned int idle_ticks;
+     char base[512], dir[512];
+     struct stat st;
+     NSMutableSet *seen;
+ 
++    /* nothing shown yet: look for new remote children 4 times a second, not 60 */
++    if (![remote_layers count] && (idle_ticks++ % 15)) return;
++
+     macdrv_remote_surface_dir(base, sizeof(base), NULL);
+     if (stat(base, &st))
+     {

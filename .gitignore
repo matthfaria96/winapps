@@ -1,0 +1,10 @@
+.DS_Store
+*.iso
+*.qcow2
+*.raw
+*.log
+
+# gerados por winapps/vendor.sh
+winapps/vendor/
+__pycache__/
+*.pyc

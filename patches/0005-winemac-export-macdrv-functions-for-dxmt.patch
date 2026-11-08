@@ -1,0 +1,128 @@
+Subject: [PATCH] winemac.drv: Support DXMT (Direct3D 10/11 -> Metal).
+
+DXMT gets the Metal view of a window through a CrossOver-style "macdrv_functions"
+table looked up with dlsym(RTLD_DEFAULT):
+- export that table and promote this library to RTLD_GLOBAL (Wine loads it with
+  RTLD_LOCAL, which hides it from dlsym(RTLD_DEFAULT));
+- DXMT's struct macdrv_win_data is {hwnd, cocoa_window, cocoa_view,
+  client_cocoa_view}, so get_win_data() returns a small compatible copy, freed
+  by release_win_data();
+- the client area view only exists once something renders to it, so create a
+  client surface (as OpenGL/Vulkan do) when DXMT asks for a window without one.
+
+Tested: D3D11 device on "Apple M4", shader compilation and ~360 FPS presenting
+through DXMT v0.80; without it wined3d crashes on this program.
+
+---
+diff -ruN pa/dlls/winemac.drv/window.c pb/dlls/winemac.drv/window.c
+--- a/dlls/winemac.drv/window.c	2026-11-07 12:50:20
++++ b/dlls/winemac.drv/window.c	2026-11-07 12:58:24
+@@ -26,6 +26,8 @@
+ #endif
+ 
+ #include "config.h"
++
++#include <dlfcn.h>
+ #include "macdrv.h"
+ 
+ #include <IOKit/pwr_mgt/IOPMLib.h>
+@@ -2337,6 +2339,99 @@
+     TRACE("hwnd %p command %u\n", hwnd, query->menu.command);
+     if (!window_menu(hwnd)) return false;
+     return NtUserPostMessage(hwnd, WM_COMMAND, MAKEWPARAM(query->menu.command, 0), 0);
++}
++
++
++/***********************************************************************
++ *              DXMT support (Direct3D 10/11 -> Metal)
++ *
++ * DXMT's winemetal.so looks up a CrossOver-style "macdrv_functions" table to get
++ * the Metal view of a window. Its struct macdrv_win_data is {hwnd, cocoa_window,
++ * cocoa_view, client_cocoa_view}, which differs from ours, so get_win_data hands
++ * out a small compatible copy that is freed by release_win_data.
++ */
++struct dxmt_win_data
++{
++    HWND                     hwnd;
++    WineWindow              *cocoa_window;
++    WineContentView         *cocoa_view;
++    WineContentView         *client_cocoa_view;
++    struct macdrv_win_data  *data;
++};
++
++static struct macdrv_win_data *dxmt_get_win_data(HWND hwnd)
++{
++    struct macdrv_win_data *data = get_win_data(hwnd);
++    struct dxmt_win_data *compat;
++
++    /* the client area view only exists once someone renders to it (GL/Vulkan
++     * create a client surface); create one for DXMT the same way. The surface is
++     * kept alive with the window, and win32u keeps its position up to date. */
++    if (data && !data->client_view)
++    {
++        release_win_data(data);
++        macdrv_CreateClientSurface(hwnd, 0, FALSE);
++        data = get_win_data(hwnd);
++    }
++
++    if (!data) return NULL;
++    if (!(compat = calloc(1, sizeof(*compat))))
++    {
++        release_win_data(data);
++        return NULL;
++    }
++    compat->hwnd = hwnd;
++    compat->cocoa_window = data->cocoa_window;
++    compat->cocoa_view = data->client_view;
++    compat->client_cocoa_view = data->client_view;
++    compat->data = data;
++    return (struct macdrv_win_data *)compat;
++}
++
++static void dxmt_release_win_data(struct macdrv_win_data *data)
++{
++    struct dxmt_win_data *compat = (struct dxmt_win_data *)data;
++
++    if (!compat) return;
++    release_win_data(compat->data);
++    free(compat);
++}
++
++struct macdrv_functions_t
++{
++    void  (*macdrv_init_display_devices)(BOOL);
++    struct macdrv_win_data *(*get_win_data)(HWND hwnd);
++    void  (*release_win_data)(struct macdrv_win_data *data);
++    void *(*macdrv_get_cocoa_window)(HWND hwnd, BOOL require_on_screen);
++    void *(*macdrv_create_metal_device)(void);
++    void  (*macdrv_release_metal_device)(void *device);
++    void *(*macdrv_view_create_metal_view)(void *view, void *device);
++    void *(*macdrv_view_get_metal_layer)(void *view);
++    void  (*macdrv_view_release_metal_view)(void *view);
++    void  (*on_main_thread)(void *block);
++};
++
++__attribute__((visibility("default"))) const struct macdrv_functions_t macdrv_functions =
++{
++    NULL,
++    dxmt_get_win_data,
++    dxmt_release_win_data,
++    NULL,
++    (void *)macdrv_create_metal_device,
++    (void *)macdrv_release_metal_device,
++    (void *)macdrv_view_create_metal_view,
++    (void *)macdrv_view_get_metal_layer,
++    (void *)macdrv_view_release_metal_view,
++    NULL,
++};
++
++/* Wine loads this library with RTLD_LOCAL, which hides macdrv_functions from
++ * dlsym(RTLD_DEFAULT); promote ourselves to RTLD_GLOBAL so DXMT can find it. */
++__attribute__((constructor)) static void dxmt_make_symbols_global(void)
++{
++    Dl_info info;
++    if (dladdr(&macdrv_functions, &info) && info.dli_fname)
++        dlopen(info.dli_fname, RTLD_NOW | RTLD_GLOBAL | RTLD_NOLOAD);
+ }
+ 
+ 

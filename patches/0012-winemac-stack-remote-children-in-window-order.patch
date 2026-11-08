@@ -1,0 +1,158 @@
+--- a/dlls/winemac.drv/surface.c
++++ b/dlls/winemac.drv/surface.c
+@@ -254,7 +254,8 @@
+     unsigned int  kind;             /* 0: window surface (GDI), 1: client surface (GPU) */
+     unsigned int  pid;              /* producer, to drop files of dead processes */
+     unsigned int  frames;           /* number of images presented (diagnostics) */
+-    unsigned int  pad[4];
++    unsigned int  zorder;           /* paint order under the root (bottom = 1), 0 = unknown */
++    unsigned int  pad[3];
+ };
+ 
+ struct remote_header
+@@ -362,23 +363,46 @@
+     __atomic_add_fetch(&hdr->shared->seq, 1, __ATOMIC_RELEASE);
+ }
+ 
+-/* A remote child's header is written by the process that owns the child, but its position and
+- * visibility also depend on ancestors owned by other processes (e.g. Chromium: the browser shows
+- * or moves Chrome_WidgetWin_1, the GPU process owns the "Intermediate D3D Window" below it).
+- * Whoever changes a child window therefore refreshes the headers of all descendants under the
+- * same root; the window functions used by remote_header_update() work across processes. */
+-void macdrv_remote_refresh_descendants(HWND parent)
++/* Paint order of the windows under a root, bottom to top (parents before their children),
++ * like Windows composites them.  Hosts such as Power BI keep several full-size WebViews
++ * visible at once and pick the active one by z-order, so the owner must stack the remote
++ * layers in this order, not in file order. */
++static void collect_paint_order(HWND parent, HWND *list, unsigned int *count, unsigned int max, int depth)
+ {
+-    HWND root, child, p;
++    HWND child = NtUserGetWindowRelative(parent, GW_CHILD);
++
++    if (!child || depth > 32) return;
++    for (child = NtUserGetWindowRelative(child, GW_HWNDLAST); child && *count < max;
++         child = NtUserGetWindowRelative(child, GW_HWNDPREV))
++    {
++        list[(*count)++] = child;
++        collect_paint_order(child, list, count, max, depth + 1);
++    }
++}
++
++#define MAX_PAINT_ORDER 4096
++
++/* A remote child's header is written by the process that owns the child, but its position,
++ * visibility and stacking also depend on windows owned by other processes (e.g. Chromium: the
++ * browser shows or moves Chrome_WidgetWin_1, the GPU process owns the "Intermediate D3D Window"
++ * below it, and the host reorders its WebView containers).  Whoever changes a child window
++ * therefore refreshes the headers of all remote children under the same root; the window
++ * functions used here work across processes.  The z-order is only recomputed when it may have
++ * changed (it costs a walk of the whole window tree). */
++void macdrv_remote_refresh_root(HWND hwnd, int zorder_changed)
++{
++    HWND root, child, *order = NULL;
+     char base[480], dir[700], path[800];
+     struct dirent *rent, *entry;
+     struct remote_header tmp;
+     unsigned long value;
++    unsigned int count = 0, i;
++    BOOL walked = FALSE;
+     DIR *rd, *d;
+     int fd;
+ 
+-    if (!(NtUserGetWindowLongW(parent, GWL_STYLE) & WS_CHILD)) return;
+-    if (!(root = NtUserGetAncestor(parent, GA_ROOT)) || root == parent) return;
++    if (!(root = NtUserGetAncestor(hwnd, GA_ROOT))) return;
++    if (root == hwnd && !zorder_changed) return;
+     macdrv_remote_surface_dir(base, sizeof(base), NULL);
+     if (!(rd = opendir(base))) return;
+     while ((rent = readdir(rd)))
+@@ -390,20 +414,34 @@
+         {
+             if (!strstr(entry->d_name, ".surf") || sscanf(entry->d_name, "%08lx-", &value) != 1) continue;
+             child = (HWND)(ULONG_PTR)value;
+-            for (p = child; p && p != parent && p != root; p = NtUserGetAncestor(p, GA_PARENT)) ;
+-            if (p != parent) continue;
++            if (NtUserGetAncestor(child, GA_ROOT) != root) continue;
+             snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+             if ((fd = open(path, O_RDWR)) < 0) continue;
+             tmp.shared = mmap(NULL, sizeof(*tmp.shared), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+             close(fd);
+             if (tmp.shared == MAP_FAILED) continue;
+             snprintf(tmp.path, sizeof(tmp.path), "%s", path);
+-            if (tmp.shared->magic == REMOTE_SURFACE_MAGIC) remote_header_update(&tmp, child);
++            if (tmp.shared->magic == REMOTE_SURFACE_MAGIC)
++            {
++                if (zorder_changed && !walked)
++                {
++                    walked = TRUE;
++                    if ((order = malloc(MAX_PAINT_ORDER * sizeof(*order))))
++                        collect_paint_order(root, order, &count, MAX_PAINT_ORDER, 0);
++                }
++                if (order)
++                {
++                    for (i = 0; i < count; i++) if (order[i] == child) break;
++                    tmp.shared->zorder = i < count ? i + 1 : 0;
++                }
++                remote_header_update(&tmp, child);
++            }
+             munmap(tmp.shared, sizeof(*tmp.shared));
+         }
+         closedir(d);
+     }
+     closedir(rd);
++    free(order);
+ }
+ 
+ static BOOL remote_header_create(struct remote_header *hdr, HWND hwnd, unsigned int kind, unsigned int context_id)
+@@ -435,6 +473,7 @@
+     hdr->shared->pid = getpid();
+     remote_header_update(hdr, hwnd);
+     __atomic_store_n(&hdr->shared->magic, REMOTE_SURFACE_MAGIC, __ATOMIC_RELEASE);
++    macdrv_remote_refresh_root(hwnd, TRUE);   /* stacking order of the new one and the others */
+     TRACE("hwnd %p kind %u context %u -> %s\n", hwnd, kind, context_id, debugstr_a(hdr->path));
+     return TRUE;
+ }
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -1774,7 +1774,8 @@
+     unsigned int new_style = NtUserGetWindowLongW(hwnd, GWL_STYLE);
+     struct window_rects old_rects;
+ 
+-    macdrv_remote_refresh_descendants(hwnd);
++    macdrv_remote_refresh_root(hwnd, !(swp_flags & SWP_NOZORDER) ||
++                                     (swp_flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)));
+     if (!(data = get_win_data(hwnd))) return;
+ 
+     thread_data = macdrv_thread_data();
+--- a/dlls/winemac.drv/macdrv.h
++++ b/dlls/winemac.drv/macdrv.h
+@@ -298,7 +298,7 @@
+ extern void *macdrv_remote_metal_layer(void *handle);
+ extern void macdrv_remote_metal_release(void *handle);
+ extern void macdrv_remote_metal_update(HWND hwnd);
+-extern void macdrv_remote_refresh_descendants(HWND parent);
++extern void macdrv_remote_refresh_root(HWND hwnd, int zorder_changed);
+ extern void macdrv_remote_surface_update(HWND hwnd, struct window_surface *surface);
+ extern bool query_menu_snapshot(HWND hwnd, macdrv_query *query);
+ extern bool query_menu_command(HWND hwnd, macdrv_query *query);
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -3148,7 +3148,7 @@
+ {
+     unsigned int  magic, version, seq, visible;
+     int           x, y, width, height;
+-    unsigned int  context_id, kind, pid, pad[5];
++    unsigned int  context_id, kind, pid, frames, zorder, pad[3];
+ };
+ 
+ @interface WineRemoteLayer : NSObject
+@@ -3249,7 +3249,8 @@
+             {
+                 CGRect frame = cgrect_mac_from_win(CGRectMake(h->x, h->y, h->width, h->height));
+                 if (r->host.contextId != h->context_id) r->host.contextId = h->context_id;
+-                r->container.zPosition = 1000 + h->kind;   /* GPU content above GDI content */
++                /* Windows stacking order under the root; a window's GPU content above its GDI content */
++                r->container.zPosition = 1000 + 2.0 * h->zorder + h->kind;
+                 r->container.hidden = !h->visible || !h->context_id;
+                 r->container.position = frame.origin;
+                 r->container.bounds = CGRectMake(0, 0, frame.size.width, frame.size.height);

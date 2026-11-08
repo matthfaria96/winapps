@@ -1,0 +1,80 @@
+WinApps: a superfície que o winemac cria para o DXMT acompanha o tamanho da janela,
+e a camada Metal estica o back buffer até a view (como DXGI_SCALING_STRETCH).
+
+Antes a view ficava no tamanho de criação (só recortada pela janela): redimensionar
+um jogo D3D11 (RubinOT) deixava a imagem cortada no canto.
+
+diff -ru a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
+--- a/dlls/winemac.drv/cocoa_window.m	2026-11-08 13:52:52
++++ b/dlls/winemac.drv/cocoa_window.m	2026-11-08 13:52:52
+@@ -831,6 +831,9 @@
+             _device = [device retain];
+             self.wantsLayer = YES;
+             self.layerContentsRedrawPolicy = NSViewLayerContentsRedrawNever;
++            /* like DXGI_SCALING_STRETCH: a back buffer smaller or larger than the
++             * window (program that keeps a fixed render size) fills the view */
++            self.layerContentsPlacement = NSViewLayerContentsPlacementScaleAxesIndependently;
+         }
+         return self;
+     }
+@@ -853,6 +856,7 @@
+         layer.device = _device;
+         layer.framebufferOnly = YES;
+         layer.magnificationFilter = kCAFilterNearest;
++        layer.contentsGravity = kCAGravityResize;
+         layer.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
+         layer.contentsScale = retina_on ? 2.0 : 1.0;
+         return layer;
+diff -ru a/dlls/winemac.drv/macdrv.h b/dlls/winemac.drv/macdrv.h
+--- a/dlls/winemac.drv/macdrv.h	2026-11-08 13:52:53
++++ b/dlls/winemac.drv/macdrv.h	2026-11-08 13:52:52
+@@ -234,6 +234,7 @@
+     HWND                hwnd;                   /* hwnd that this private data belongs to */
+     WineWindow         *cocoa_window;
+     WineContentView    *client_view;
++    struct client_surface *dxmt_client;         /* WinApps: client surface created for DXMT */
+     struct window_rects rects;                  /* window rects in monitor DPI, relative to parent client area */
+     HANDLE              drag_event;             /* event to signal that Cocoa-driven window dragging has ended */
+     unsigned int        on_screen : 1;          /* is window ordered in? (minimized or not) */
+diff -ru a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
+--- a/dlls/winemac.drv/window.c	2026-11-08 13:52:53
++++ b/dlls/winemac.drv/window.c	2026-11-08 13:52:52
+@@ -1909,6 +1909,7 @@
+     struct macdrv_win_data *data;
+     unsigned int new_style = NtUserGetWindowLongW(hwnd, GWL_STYLE);
+     struct window_rects old_rects;
++    struct client_surface *dxmt_client;
+ 
+     macdrv_remote_refresh_root(hwnd, !(swp_flags & SWP_NOZORDER) ||
+                                      (swp_flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)));
+@@ -1988,7 +1989,10 @@
+     }
+ 
+ done:
++    dxmt_client = data->dxmt_client;
+     release_win_data(data);
++    /* outside the win_data lock: it takes win32u's surfaces lock first */
++    if (dxmt_client) client_surface_present(dxmt_client);
+ }
+ 
+ 
+@@ -2687,12 +2691,17 @@
+ 
+     /* the client area view only exists once someone renders to it (GL/Vulkan
+      * create a client surface); create one for DXMT the same way. The surface is
+-     * kept alive with the window, and win32u keeps its position up to date. */
++     * kept alive with the window. It is not in win32u's list of used surfaces
++     * (no GL/Vulkan drawable), so macdrv_WindowPosChanged keeps its size and
++     * position up to date. */
+     if (data && !data->client_view)
+     {
++        struct client_surface *client;
++
+         release_win_data(data);
+-        macdrv_CreateClientSurface(hwnd, 0, FALSE);
++        client = macdrv_CreateClientSurface(hwnd, 0, FALSE);
+         data = get_win_data(hwnd);
++        if (data && client) data->dxmt_client = client;
+     }
+ 
+     if (!data) return NULL;

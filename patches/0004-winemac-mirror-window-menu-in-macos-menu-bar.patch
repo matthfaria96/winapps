@@ -1,0 +1,523 @@
+Subject: [PATCH] winemac.drv: Mirror the window menu in the macOS menu bar.
+
+New Mac Driver option "NativeMenuBar" (per program via AppDefaults). When the key
+window has a standard Win32 menu, its items are shown in the macOS menu bar between
+the application menu and the Window menu. Each menu is refreshed right before it
+opens (WM_INITMENU/WM_INITMENUPOPUP, 0.3 s timeout, falls back to the previous
+contents), and choosing an item posts WM_COMMAND. Shortcuts from the item text
+(e.g. "Ctrl+S") are displayed as macOS key equivalents (Ctrl -> Command) but are
+not handled by the menu, so the program still processes the key exactly once.
+The in-window menu bar is unchanged.
+
+---
+diff -ruN a/dlls/winemac.drv/cocoa_app.h b/dlls/winemac.drv/cocoa_app.h
+--- a/dlls/winemac.drv/cocoa_app.h	2026-11-07 10:55:27
++++ b/dlls/winemac.drv/cocoa_app.h	2026-11-07 10:56:38
+@@ -39,6 +39,8 @@
+ @protocol WineClipCursorHandler;
+ 
+ 
++extern void macdrv_program_menu_window_became_key(WineWindow* window);
++
+ @interface WineApplicationController : NSObject <NSApplicationDelegate>
+ {
+     CFRunLoopSourceRef requestSource;
+diff -ruN a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+--- a/dlls/winemac.drv/cocoa_app.m	2026-11-07 10:55:27
++++ b/dlls/winemac.drv/cocoa_app.m	2026-11-07 10:56:38
+@@ -2731,3 +2731,246 @@
+ 
+     return ret;
+ }
++
++
++/*
++ * ---------- Native macOS menu bar (NativeMenuBar option) ----------
++ *
++ * Mirrors the menu of the key Wine window into the macOS menu bar, between the
++ * application menu and the Window menu. Menus are refreshed (with WM_INITMENUPOPUP)
++ * each time one opens; picking an item posts WM_COMMAND. Shortcuts are shown but
++ * left to the program itself, so they never fire twice.
++ */
++enum { PROGRAM_MENU_SEPARATOR = 1, PROGRAM_MENU_DISABLED = 2, PROGRAM_MENU_CHECKED = 4 };
++
++@interface WineProgramMenu : NSMenu
++@property (nonatomic) NSInteger topIndex;
++@end
++
++@implementation WineProgramMenu
++    - (BOOL) performKeyEquivalent:(NSEvent*)event
++    {
++        return NO;
++    }
++@end
++
++@interface WineProgramMenuController : NSObject <NSMenuDelegate>
++{
++    NSMutableArray* topItems;
++    WineWindow* menuWindow;
++    int retries;
++}
+++ (WineProgramMenuController*) sharedController;
++- (void) windowBecameKey:(WineWindow*)window;
++@end
++
++@implementation WineProgramMenuController
++
++    + (WineProgramMenuController*) sharedController
++    {
++        static WineProgramMenuController* shared;
++        if (!shared) shared = [[WineProgramMenuController alloc] init];
++        return shared;
++    }
++
++    - (id) init
++    {
++        if ((self = [super init])) topItems = [[NSMutableArray alloc] init];
++        return self;
++    }
++
++    /* Returns a retained array, or NULL on timeout/no menu. */
++    - (CFArrayRef) copySnapshotFor:(WineWindow*)window top:(int)top
++    {
++        macdrv_query* query = macdrv_create_query();
++        CFArrayRef items = NULL;
++
++        query->type = QUERY_MENU_SNAPSHOT;
++        query->window = [window retain];
++        query->menu.top = top;
++        query->menu.items = NULL;
++        if ([window.queue query:query timeout:0.3])
++        {
++            items = query->menu.items;
++            query->menu.items = NULL;
++        }
++        macdrv_release_query(query);
++        return items;
++    }
++
++    static void apply_shortcut(NSMenuItem* item, NSString* text)
++    {
++        NSEventModifierFlags mods = 0;
++        NSString* key = nil;
++        NSCharacterSet* ws = [NSCharacterSet whitespaceCharacterSet];
++        unichar c;
++
++        for (NSString* raw in [text componentsSeparatedByString:@"+"])
++        {
++            NSString* part = [[raw stringByTrimmingCharactersInSet:ws] lowercaseString];
++            if (![part length]) continue;
++            if ([part isEqualToString:@"ctrl"] || [part isEqualToString:@"control"] || [part isEqualToString:@"strg"])
++                mods |= NSEventModifierFlagCommand;  /* Command acts as Ctrl */
++            else if ([part isEqualToString:@"shift"] || [part isEqualToString:@"umschalt"])
++                mods |= NSEventModifierFlagShift;
++            else if ([part isEqualToString:@"alt"])
++                mods |= NSEventModifierFlagOption;
++            else
++                key = part;
++        }
++        if (!key) return;
++
++        if ([key length] == 1)
++            ;
++        else if ([key characterAtIndex:0] == 'f' && [[key substringFromIndex:1] intValue] >= 1 &&
++                 [[key substringFromIndex:1] intValue] <= 24)
++        {
++            c = NSF1FunctionKey + [[key substringFromIndex:1] intValue] - 1;
++            key = [NSString stringWithCharacters:&c length:1];
++        }
++        else if ([key isEqualToString:@"del"] || [key isEqualToString:@"delete"] || [key isEqualToString:@"entf"])
++        {
++            c = NSDeleteFunctionKey;
++            key = [NSString stringWithCharacters:&c length:1];
++        }
++        else if ([key isEqualToString:@"tab"]) key = @"\t";
++        else if ([key isEqualToString:@"enter"] || [key isEqualToString:@"return"]) key = @"\r";
++        else if ([key isEqualToString:@"esc"]) key = @"\e";
++        else if ([key isEqualToString:@"space"]) key = @" ";
++        else return;
++
++        item.keyEquivalent = key;
++        item.keyEquivalentModifierMask = mods;
++    }
++
++    - (void) fillMenu:(NSMenu*)menu withItems:(NSArray*)items
++    {
++        [menu removeAllItems];
++        menu.autoenablesItems = NO;
++        for (NSDictionary* dict in items)
++        {
++            int flags = [dict[@"f"] intValue];
++            NSString* title = dict[@"t"];
++            NSArray* sub = dict[@"s"];
++            NSMenuItem* item;
++
++            if (flags & PROGRAM_MENU_SEPARATOR)
++            {
++                if ([menu numberOfItems] && ![[menu itemAtIndex:[menu numberOfItems] - 1] isSeparatorItem])
++                    [menu addItem:[NSMenuItem separatorItem]];
++                continue;
++            }
++            if (![title length]) continue;  /* owner-drawn / bitmap-only items */
++
++            item = [[[NSMenuItem alloc] initWithTitle:title action:NULL keyEquivalent:@""] autorelease];
++            item.enabled = !(flags & PROGRAM_MENU_DISABLED);
++            item.state = (flags & PROGRAM_MENU_CHECKED) ? NSControlStateValueOn : NSControlStateValueOff;
++            if (sub)
++            {
++                WineProgramMenu* submenu = [[[WineProgramMenu alloc] initWithTitle:title] autorelease];
++                submenu.topIndex = -1;
++                [self fillMenu:submenu withItems:sub];
++                item.submenu = submenu;
++            }
++            else
++            {
++                item.target = self;
++                item.action = @selector(itemSelected:);
++                item.tag = [dict[@"i"] unsignedIntValue];
++                if (dict[@"k"]) apply_shortcut(item, dict[@"k"]);
++            }
++            [menu addItem:item];
++        }
++    }
++
++    - (void) removeProgramMenus
++    {
++        NSMenu* mainMenu = [NSApp mainMenu];
++        for (NSMenuItem* item in topItems)
++            if ([mainMenu indexOfItem:item] >= 0) [mainMenu removeItem:item];
++        [topItems removeAllObjects];
++        [menuWindow release];
++        menuWindow = nil;
++    }
++
++    - (void) windowBecameKey:(WineWindow*)window
++    {
++        NSMenu* mainMenu = [NSApp mainMenu];
++        CFArrayRef items;
++        NSInteger i;
++
++        if (!native_menubar || !window || !mainMenu) return;
++
++        items = [self copySnapshotFor:window top:-1];
++        if (!items || !CFArrayGetCount(items))
++        {
++            /* Dialogs have no menu: keep the main window's. A brand-new window may not
++               have its menu yet, so try again shortly. */
++            if (items) CFRelease(items);
++            if (window != menuWindow && retries++ < 3)
++            {
++                [window retain];
++                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 700 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
++                    if ([window isKeyWindow]) [self windowBecameKey:window];
++                    [window release];
++                });
++            }
++            return;
++        }
++        retries = 0;
++
++        [self removeProgramMenus];
++        menuWindow = [window retain];
++        i = 0;
++        for (NSDictionary* dict in (NSArray*)items)
++        {
++            NSString* title = dict[@"t"];
++            NSMenuItem* top;
++            WineProgramMenu* submenu;
++
++            if (![title length] || !dict[@"s"]) { i++; continue; }
++            submenu = [[[WineProgramMenu alloc] initWithTitle:title] autorelease];
++            submenu.topIndex = i;
++            submenu.delegate = self;
++            [self fillMenu:submenu withItems:dict[@"s"]];
++            top = [[[NSMenuItem alloc] initWithTitle:title action:NULL keyEquivalent:@""] autorelease];
++            top.submenu = submenu;
++            [mainMenu insertItem:top atIndex:1 + [topItems count]];
++            [topItems addObject:top];
++            i++;
++        }
++        CFRelease(items);
++    }
++
++    /* NSMenuDelegate: refresh a top-level menu right before it opens */
++    - (void) menuNeedsUpdate:(NSMenu*)menu
++    {
++        CFArrayRef items;
++
++        if (![menu isKindOfClass:[WineProgramMenu class]] || ((WineProgramMenu*)menu).topIndex < 0 || !menuWindow)
++            return;
++        items = [self copySnapshotFor:menuWindow top:(int)((WineProgramMenu*)menu).topIndex];
++        if (!items) return;  /* program busy: keep the previous contents */
++        [self fillMenu:menu withItems:(NSArray*)items];
++        CFRelease(items);
++    }
++
++    - (void) itemSelected:(NSMenuItem*)sender
++    {
++        macdrv_query* query;
++
++        if (!menuWindow) return;
++        query = macdrv_create_query();
++        query->type = QUERY_MENU_COMMAND;
++        query->window = [menuWindow retain];
++        query->menu.command = (unsigned int)sender.tag;
++        [menuWindow.queue query:query timeout:0.3];
++        macdrv_release_query(query);
++    }
++
++@end
++
++void macdrv_program_menu_window_became_key(WineWindow* window)
++{
++    if (native_menubar) [[WineProgramMenuController sharedController] windowBecameKey:window];
++}
+diff -ruN a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
+--- a/dlls/winemac.drv/cocoa_window.m	2026-11-07 10:55:27
++++ b/dlls/winemac.drv/cocoa_window.m	2026-11-07 10:56:38
+@@ -2673,6 +2673,8 @@
+         if (event)
+             [self flagsChanged:event];
+ 
++        macdrv_program_menu_window_became_key(self);
++
+         if (causing_becomeKeyWindow == self) return;
+ 
+         [controller windowGotFocus:self];
+diff -ruN a/dlls/winemac.drv/event.c b/dlls/winemac.drv/event.c
+--- a/dlls/winemac.drv/event.c	2026-11-07 10:55:27
++++ b/dlls/winemac.drv/event.c	2026-11-07 10:55:27
+@@ -291,6 +291,14 @@
+             TRACE("QUERY_MIN_MAX_INFO\n");
+             success = query_min_max_info(hwnd);
+             break;
++        case QUERY_MENU_SNAPSHOT:
++            TRACE("QUERY_MENU_SNAPSHOT\n");
++            success = query_menu_snapshot(hwnd, query);
++            break;
++        case QUERY_MENU_COMMAND:
++            TRACE("QUERY_MENU_COMMAND\n");
++            success = query_menu_command(hwnd, query);
++            break;
+         default:
+             FIXME("unrecognized query type %d\n", query->type);
+             break;
+diff -ruN a/dlls/winemac.drv/macdrv.h b/dlls/winemac.drv/macdrv.h
+--- a/dlls/winemac.drv/macdrv.h	2026-11-07 10:55:27
++++ b/dlls/winemac.drv/macdrv.h	2026-11-07 10:55:27
+@@ -284,6 +284,8 @@
+ extern bool query_resize_size(HWND hwnd, macdrv_query *query);
+ extern bool query_resize_start(HWND hwnd);
+ extern bool query_min_max_info(HWND hwnd);
++extern bool query_menu_snapshot(HWND hwnd, macdrv_query *query);
++extern bool query_menu_command(HWND hwnd, macdrv_query *query);
+ 
+ extern void macdrv_mouse_button(HWND hwnd, const macdrv_event *event);
+ extern void macdrv_mouse_moved(HWND hwnd, const macdrv_event *event);
+diff -ruN a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
+--- a/dlls/winemac.drv/macdrv_cocoa.h	2026-11-07 10:55:27
++++ b/dlls/winemac.drv/macdrv_cocoa.h	2026-11-07 10:55:27
+@@ -113,6 +113,7 @@
+ extern bool use_precise_scrolling;
+ extern int gl_surface_mode;
+ extern CFDictionaryRef localized_strings;
++extern bool native_menubar;  /* Mirror the window menu in the macOS menu bar (NativeMenuBar). */
+ extern bool retina_enabled;  /* Whether Retina mode is enabled via registry setting. */
+ extern bool retina_on;       /* Whether Retina mode is currently active (enabled and display is in default mode). */
+ extern bool enable_app_nap;
+@@ -391,6 +392,8 @@
+     QUERY_RESIZE_SIZE,
+     QUERY_RESIZE_START,
+     QUERY_MIN_MAX_INFO,
++    QUERY_MENU_SNAPSHOT,
++    QUERY_MENU_COMMAND,
+     NUM_QUERY_TYPES
+ };
+ 
+@@ -415,6 +418,11 @@
+             unsigned int    from_left : 1;
+             unsigned int    from_top : 1;
+         }                                           resize_size;
++        struct {
++            int             top;        /* -1: whole menu bar; >= 0: refresh that top-level popup */
++            unsigned int    command;    /* QUERY_MENU_COMMAND: item id to send as WM_COMMAND */
++            CFArrayRef      items;      /* QUERY_MENU_SNAPSHOT result (caller releases) */
++        }                                           menu;
+     };
+ } macdrv_query;
+ 
+diff -ruN a/dlls/winemac.drv/macdrv_main.c b/dlls/winemac.drv/macdrv_main.c
+--- a/dlls/winemac.drv/macdrv_main.c	2026-11-07 10:55:27
++++ b/dlls/winemac.drv/macdrv_main.c	2026-11-07 10:55:27
+@@ -52,6 +52,7 @@
+ bool use_precise_scrolling = true;
+ int gl_surface_mode = GL_SURFACE_IN_FRONT_OPAQUE;
+ bool retina_enabled = false;
++bool native_menubar = false;
+ bool enable_app_nap = false;
+  bool force_backing_store = FALSE;
+ 
+@@ -346,6 +347,9 @@
+ 
+     if (!get_config_key(hkey, appkey, "UsePreciseScrolling", buffer, sizeof(buffer)))
+         use_precise_scrolling = IS_OPTION_TRUE(buffer[0]);
++
++    if (!get_config_key(hkey, appkey, "NativeMenuBar", buffer, sizeof(buffer)))
++        native_menubar = IS_OPTION_TRUE(buffer[0]);
+ 
+     if (!get_config_key(hkey, appkey, "OpenGLSurfaceMode", buffer, sizeof(buffer)))
+     {
+diff -ruN a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
+--- a/dlls/winemac.drv/window.c	2026-11-07 10:55:27
++++ b/dlls/winemac.drv/window.c	2026-11-07 10:55:54
+@@ -2197,6 +2197,150 @@
+ 
+ 
+ /***********************************************************************
++ *              Native macOS menu bar (NativeMenuBar option)
++ *
++ * The Cocoa side asks for a snapshot of the window's menu and shows it in the
++ * macOS menu bar; picking an item there posts WM_COMMAND to the window.
++ */
++enum
++{
++    MENU_SNAPSHOT_SEPARATOR = 1,
++    MENU_SNAPSHOT_DISABLED  = 2,
++    MENU_SNAPSHOT_CHECKED   = 4,
++    MENU_SNAPSHOT_RADIO     = 8,
++};
++
++static HMENU window_menu(HWND hwnd)
++{
++    if (!hwnd || (NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_CHILD)) return 0;
++    return (HMENU)NtUserGetWindowLongPtrW(hwnd, GWLP_ID);
++}
++
++static void dict_set_number(CFMutableDictionaryRef dict, CFStringRef key, int value)
++{
++    CFNumberRef num = CFNumberCreate(NULL, kCFNumberIntType, &value);
++    CFDictionarySetValue(dict, key, num);
++    CFRelease(num);
++}
++
++/* "&Open...\tCtrl+O" -> title "Open..." and shortcut "Ctrl+O" ("&&" is a literal '&') */
++static void dict_set_menu_text(CFMutableDictionaryRef dict, const WCHAR *text, UINT len)
++{
++    WCHAR title[256];
++    UINT i, n = 0, tab = len;
++    CFStringRef str;
++
++    for (i = 0; i < len; i++) if (text[i] == '\t' || text[i] == '\b') { tab = i; break; }
++    for (i = 0; i < tab && n < ARRAY_SIZE(title); i++)
++    {
++        if (text[i] == '&')
++        {
++            if (i + 1 < tab && text[i + 1] == '&') title[n++] = '&', i++;
++            continue;
++        }
++        title[n++] = text[i];
++    }
++    str = CFStringCreateWithCharacters(NULL, (const UniChar *)title, n);
++    CFDictionarySetValue(dict, CFSTR("t"), str);
++    CFRelease(str);
++    if (tab + 1 < len)
++    {
++        str = CFStringCreateWithCharacters(NULL, (const UniChar *)text + tab + 1, len - tab - 1);
++        CFDictionarySetValue(dict, CFSTR("k"), str);
++        CFRelease(str);
++    }
++}
++
++static CFArrayRef copy_menu_items(HWND hwnd, HMENU menu, int depth, BOOL init)
++{
++    CFMutableArrayRef array = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
++    INT_PTR count = NtUserGetMenuItemCount(menu);
++    int i;
++
++    for (i = 0; i < count && i < 512; i++)
++    {
++        WCHAR text[256];
++        MENUITEMINFOW mii = { sizeof(mii) };
++        CFMutableDictionaryRef dict;
++        int flags = 0;
++
++        mii.fMask = MIIM_FTYPE | MIIM_STATE | MIIM_ID | MIIM_SUBMENU | MIIM_STRING;
++        mii.dwTypeData = text;
++        mii.cch = ARRAY_SIZE(text);
++        if (!NtUserThunkedMenuItemInfo(menu, i, MF_BYPOSITION, NtUserGetMenuItemInfoW, &mii, NULL))
++            continue;
++
++        if (mii.fType & MFT_SEPARATOR) flags |= MENU_SNAPSHOT_SEPARATOR;
++        if (mii.fState & MFS_DISABLED) flags |= MENU_SNAPSHOT_DISABLED;
++        if (mii.fState & MFS_CHECKED) flags |= MENU_SNAPSHOT_CHECKED;
++        if (mii.fType & MFT_RADIOCHECK) flags |= MENU_SNAPSHOT_RADIO;
++
++        dict = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
++                                         &kCFTypeDictionaryValueCallBacks);
++        dict_set_number(dict, CFSTR("f"), flags);
++        dict_set_number(dict, CFSTR("i"), mii.wID);
++        if (!(flags & MENU_SNAPSHOT_SEPARATOR) && !(mii.fType & MFT_BITMAP))
++            dict_set_menu_text(dict, text, min(mii.cch, ARRAY_SIZE(text) - 1));
++
++        if (mii.hSubMenu && depth < 6)
++        {
++            CFArrayRef sub;
++            if (init) send_message(hwnd, WM_INITMENUPOPUP, (WPARAM)mii.hSubMenu, MAKELPARAM(i, FALSE));
++            sub = copy_menu_items(hwnd, mii.hSubMenu, depth + 1, init);
++            CFDictionarySetValue(dict, CFSTR("s"), sub);
++            CFRelease(sub);
++        }
++        CFArrayAppendValue(array, dict);
++        CFRelease(dict);
++    }
++    return array;
++}
++
++/***********************************************************************
++ *              query_menu_snapshot
++ *
++ * Handler for QUERY_MENU_SNAPSHOT query.
++ */
++bool query_menu_snapshot(HWND hwnd, macdrv_query *query)
++{
++    HMENU menu = window_menu(hwnd);
++    int top = query->menu.top;
++
++    TRACE("hwnd %p menu %p top %d\n", hwnd, menu, top);
++    query->menu.items = NULL;
++    if (!menu || (INT_PTR)NtUserGetMenuItemCount(menu) <= 0) return true;  /* no menu: empty result */
++
++    if (top >= 0)
++    {
++        /* let the program update checks/enabled states, as when its menu opens */
++        MENUITEMINFOW mii = { sizeof(mii) };
++        mii.fMask = MIIM_SUBMENU;
++        if (!NtUserThunkedMenuItemInfo(menu, top, MF_BYPOSITION, NtUserGetMenuItemInfoW, &mii, NULL) ||
++            !mii.hSubMenu)
++            return false;
++        send_message(hwnd, WM_INITMENU, (WPARAM)menu, 0);
++        send_message(hwnd, WM_INITMENUPOPUP, (WPARAM)mii.hSubMenu, MAKELPARAM(top, FALSE));
++        query->menu.items = copy_menu_items(hwnd, mii.hSubMenu, 1, TRUE);
++    }
++    else
++        query->menu.items = copy_menu_items(hwnd, menu, 0, FALSE);
++    return true;
++}
++
++/***********************************************************************
++ *              query_menu_command
++ *
++ * Handler for QUERY_MENU_COMMAND query.
++ */
++bool query_menu_command(HWND hwnd, macdrv_query *query)
++{
++    TRACE("hwnd %p command %u\n", hwnd, query->menu.command);
++    if (!window_menu(hwnd)) return false;
++    return NtUserPostMessage(hwnd, WM_COMMAND, MAKEWPARAM(query->menu.command, 0), 0);
++}
++
++
++/***********************************************************************
+  *              init_win_context
+  */
+ void init_win_context(void)

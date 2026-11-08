@@ -1,0 +1,29 @@
+diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
+index 2053542..ac2c263 100644
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -141,6 +141,7 @@ public:
+       hud(WMT::DeveloperHUDProperties::instance()) {
+ 
+     binder_.owner = this;
++    composition_ = !hWnd;
+     if (hWnd) {
+       native_view_ = WMT::CreateMetalViewFromHWND((intptr_t)hWnd, pDevice->GetMTLDevice(), layer_weak_);
+ 
+@@ -243,7 +244,7 @@ public:
+       return S_OK;
+     }
+ 
+-    if (riid == IID_IDXMTCompositionSwapChain && !hWnd) {
++    if (riid == IID_IDXMTCompositionSwapChain && composition_) {
+       AddRef();
+       *ppvObject = static_cast<IDXMTCompositionSwapChain *>(&binder_);
+       return S_OK;
+@@ -1115,6 +1116,7 @@ private:
+     HRESULT STDMETHODCALLTYPE BindToWindow(HWND hwnd) override { return owner->BindToWindowImpl(hwnd); }
+   } binder_;
+ 
++  bool composition_ = false; // criado sem HWND (DirectComposition); continua ligável após BindToWindow
+   WMT::Object native_view_;
+   WMT::MetalLayer layer_weak_;
+   ULONG presentation_count_;

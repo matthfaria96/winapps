@@ -1,0 +1,37 @@
+--- a/programs/winecfg/winecfg.rc
++++ b/programs/winecfg/winecfg.rc
+@@ -40,8 +40,8 @@
+     IDS_TAB_AUDIO           "Audio"
+     IDS_TAB_STAGING         "Staging"
+     IDS_TAB_ABOUT           "About"
+-    IDS_WINECFG_TITLE       "Wine configuration"
+-    IDS_WINECFG_TITLE_APP   "Wine configuration for %s"
++    IDS_WINECFG_TITLE       "Windows settings"
++    IDS_WINECFG_TITLE_APP   "Windows settings for %s"
+     IDS_THEMEFILE           "Theme files (*.msstyles; *.theme)"
+     IDS_THEMEFILE_SELECT    "Select a theme file"
+     IDS_SHELL_FOLDER        "Folder"
+--- a/po/pt_BR.po
++++ b/po/pt_BR.po
+@@ -19961,8 +19961,8 @@
+ msgstr "Sobre"
+ 
+ #: programs/winecfg/winecfg.rc:43
+-msgid "Wine configuration"
+-msgstr "Configuração do Wine"
++msgid "Windows settings"
++msgstr "Configurações do Windows"
+ 
+ #: programs/winecfg/winecfg.rc:45
+ msgid "Theme files (*.msstyles; *.theme)"
+@@ -19981,8 +19981,8 @@
+ msgstr "Atalho para"
+ 
+ #: programs/winecfg/winecfg.rc:44
+-msgid "Wine configuration for %s"
+-msgstr "Configuração do Wine para %s"
++msgid "Windows settings for %s"
++msgstr "Configurações do Windows para %s"
+ 
+ #: programs/winecfg/winecfg.rc:83
+ msgid "Selected driver: %s"

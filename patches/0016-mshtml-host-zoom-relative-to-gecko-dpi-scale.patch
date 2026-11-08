@@ -1,0 +1,37 @@
+--- a/dlls/mshtml/olecmd.c
++++ b/dlls/mshtml/olecmd.c
+@@ -570,6 +570,19 @@
+     return E_NOTIMPL;
+ }
+ 
++/* Gecko already scales pages by the system DPI in DPI-aware processes (one CSS pixel is
++ * LOGPIXELS/96 device pixels), while IE renders at 96 DPI and DPI-aware hosts ask for the extra
++ * zoom themselves (e.g. 200% on a 192 DPI screen).  Applying both made pages twice too big and
++ * cut off in dialogs (Power BI sign-in), so the host's zoom is relative to Gecko's own scale. */
++static float gecko_dpi_scale(void)
++{
++    HDC hdc = GetDC(0);
++    int dpi = hdc ? GetDeviceCaps(hdc, LOGPIXELSX) : 96;
++
++    if(hdc) ReleaseDC(0, hdc);
++    return dpi > 96 ? dpi / 96.0f : 1.0f;
++}
++
+ static HRESULT exec_optical_zoom(HTMLDocumentNode *doc, DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
+ {
+     TRACE("(%p)->(%ld %s %p)\n", doc, nCmdexecopt, debugstr_variant(pvaIn), pvaOut);
+@@ -580,10 +593,12 @@
+     }
+ 
+     if(pvaIn)
+-        set_viewer_zoom(doc->browser, (float)V_I4(pvaIn)/100);
++        set_viewer_zoom(doc->browser, (float)V_I4(pvaIn)/100 / gecko_dpi_scale());
+     if(pvaOut) {
+         V_VT(pvaOut) = VT_I4;
+-        V_I4(pvaOut) = get_viewer_zoom(doc->browser) * 100;
++        /* like IE, report 100% for the DPI scaling Gecko does by itself: hosts read the zoom,
++           multiply it by their DPI factor and set it back */
++        V_I4(pvaOut) = get_viewer_zoom(doc->browser) * 100 + 0.5f;
+     }
+     return S_OK;
+ }

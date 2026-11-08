@@ -1,0 +1,59 @@
+--- a/dlls/ntdll/unix/security.c
++++ b/dlls/ntdll/unix/security.c
+@@ -874,8 +874,29 @@
+  */
+ NTSTATUS WINAPI NtImpersonateAnonymousToken( HANDLE thread )
+ {
+-    FIXME( "(%p): stub\n", thread );
+-    return STATUS_NOT_IMPLEMENTED;
++    /* Wine has no separate anonymous logon: impersonate a copy of the process token instead,
++     * so callers that impersonate briefly and then query the thread token (e.g. Analysis
++     * Services in Power BI) keep working. */
++    OBJECT_ATTRIBUTES attr;
++    SECURITY_QUALITY_OF_SERVICE qos;
++    HANDLE primary, token;
++    NTSTATUS status;
++
++    FIXME( "(%p): semi-stub\n", thread );
++
++    if ((status = NtOpenProcessToken( NtCurrentProcess(), TOKEN_DUPLICATE, &primary ))) return status;
++    qos.Length = sizeof(qos);
++    qos.ImpersonationLevel = SecurityImpersonation;
++    qos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
++    qos.EffectiveOnly = FALSE;
++    InitializeObjectAttributes( &attr, NULL, 0, NULL, NULL );
++    attr.SecurityQualityOfService = &qos;
++    status = NtDuplicateToken( primary, TOKEN_IMPERSONATE | TOKEN_QUERY, &attr, FALSE, TokenImpersonation, &token );
++    NtClose( primary );
++    if (status) return status;
++    status = NtSetInformationThread( thread, ThreadImpersonationToken, &token, sizeof(token) );
++    NtClose( token );
++    return status;
+ }
+ 
+ 
+--- a/dlls/ntdll/unix/process.c
++++ b/dlls/ntdll/unix/process.c
+@@ -1004,6 +1004,22 @@
+         pvmi->PagefileUsage = info.virtual_size;
+         pvmi->WorkingSetSize = info.resident_size;
+         pvmi->PeakWorkingSetSize = info.resident_size_max;
++    }
++#endif
++#if defined(TASK_VM_INFO) && defined(TASK_VM_INFO_REV1_COUNT)
++    {
++        /* virtual_size counts reserved address space (tens of GB under Wine), which makes
++         * memory-aware programs believe they are out of memory; the committed/private
++         * memory Windows reports is closer to the physical footprint. */
++        task_vm_info_data_t vm;
++        mach_msg_type_number_t vmCount = TASK_VM_INFO_COUNT;
++
++        if (task_info( mach_task_self(), TASK_VM_INFO, (task_info_t)&vm, &vmCount ) == KERN_SUCCESS &&
++            vmCount >= TASK_VM_INFO_REV1_COUNT)
++        {
++            pvmi->PagefileUsage = vm.phys_footprint;
++            pvmi->PeakPagefileUsage = max( pvmi->PeakPagefileUsage, vm.phys_footprint );
++        }
+     }
+ #endif
+ }

@@ -1,0 +1,32 @@
+diff --git a/src/d3d11/d3d11_context_impl.cpp b/src/d3d11/d3d11_context_impl.cpp
+index d53be63..200578a 100644
+--- a/src/d3d11/d3d11_context_impl.cpp
++++ b/src/d3d11/d3d11_context_impl.cpp
+@@ -1848,7 +1848,18 @@ public:
+   void
+   STDMETHODCALLTYPE
+   SwapDeviceContextState(ID3DDeviceContextState *pState, ID3DDeviceContextState **ppPreviousState) override {
+-    UNIMPLEMENTED("SwapDeviceContextState");
++    /* WinApps: o Direct2D do motor (d2d1) troca de estado em todo desenho e espera um
++       objeto de estado anterior válido. Mínimo: devolve o estado "atual" (criado sob
++       demanda) e guarda o novo; o estado do pipeline não é salvo/restaurado (quem usa
++       só Direct2D, como o Notepad++, redefine tudo o que precisa a cada desenho). */
++    std::lock_guard<mutex_t> lock(mutex);
++    if (ppPreviousState) {
++      if (!current_context_state_)
++        current_context_state_ = new MTLD3D11DeviceContextState(device);
++      *ppPreviousState = current_context_state_.ref();
++    }
++    if (pState)
++      current_context_state_ = pState;
+   }
+ 
+   void
+@@ -5101,6 +5112,7 @@ public:
+ 
+ protected:
+   MTLD3D11Device *device;
++  Com<ID3DDeviceContextState> current_context_state_;
+   CommandBufferState cmdbuf_state = CommandBufferState::Idle;
+   CommandBufferState previous_render_pipeline_state = CommandBufferState::Idle;
+   ContextInternalState &ctx_state;

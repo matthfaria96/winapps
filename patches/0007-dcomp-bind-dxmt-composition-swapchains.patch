@@ -1,0 +1,68 @@
+--- a/dlls/dcomp/device.c	2026-11-07 15:11:47
++++ b/dlls/dcomp/device.c	2026-11-07 15:18:38
+@@ -606,7 +606,36 @@
+ 
+     return visual;
+ }
++
++/* Swapchains from DXMT (Direct3D 11 -> Metal) cannot be read back through Direct2D;
++ * instead they can present straight into a window once told which one. The
++ * swapchain implements this private interface (see DXMT's d3d11_swapchain.cpp). */
++static const GUID IID_IDXMTCompositionSwapChain =
++    {0x7f3a2c1e, 0x5b8d, 0x4e6f, {0x9a, 0x0b, 0x1c, 0x2d, 0x3e, 0x4f, 0x5a, 0x6b}};
+ 
++typedef struct IDXMTCompositionSwapChain IDXMTCompositionSwapChain;
++struct IDXMTCompositionSwapChainVtbl
++{
++    HRESULT (STDMETHODCALLTYPE *QueryInterface)(IDXMTCompositionSwapChain *, REFIID, void **);
++    ULONG (STDMETHODCALLTYPE *AddRef)(IDXMTCompositionSwapChain *);
++    ULONG (STDMETHODCALLTYPE *Release)(IDXMTCompositionSwapChain *);
++    HRESULT (STDMETHODCALLTYPE *BindToWindow)(IDXMTCompositionSwapChain *, HWND);
++};
++struct IDXMTCompositionSwapChain { const struct IDXMTCompositionSwapChainVtbl *lpVtbl; };
++
++static BOOL bind_late_swapchain(const struct composition_target *target, struct composition_visual *visual)
++{
++    IDXMTCompositionSwapChain *late;
++    HRESULT hr;
++
++    if (FAILED(IUnknown_QueryInterface(visual->content, &IID_IDXMTCompositionSwapChain, (void **)&late)))
++        return FALSE;
++    hr = late->lpVtbl->BindToWindow(late, target->hwnd);
++    TRACE("bound swapchain %p to target window %p, hr %#lx.\n", visual->content, target->hwnd, hr);
++    late->lpVtbl->Release(late);
++    return SUCCEEDED(hr);
++}
++
+ static HRESULT do_composite(const struct composition_target *target, struct composition_visual *visual)
+ {
+     struct composition_visual *child_visual;
+@@ -623,8 +652,13 @@
+     /* Render content */
+     if (visual->content)
+     {
+-        if (IsEqualGUID(&visual->content_iid, &IID_IDXGISwapChain1))
++        if (IsEqualGUID(&visual->content_iid, &IID_IDXGISwapChain1) && bind_late_swapchain(target, visual))
+         {
++            /* presented directly into the target window by the swapchain itself */
++            dxgi_surface = NULL;
++        }
++        else if (IsEqualGUID(&visual->content_iid, &IID_IDXGISwapChain1))
++        {
+             DXGI_SWAP_CHAIN_DESC swapchain_desc;
+             IDXGISwapChain1 *swapchain;
+ 
+@@ -687,8 +721,11 @@
+             return E_FAIL;
+         }
+ 
+-        do_composite_dxgi_surface(target, visual, dxgi_surface);
+-        IDXGISurface_Release(dxgi_surface);
++        if (dxgi_surface)
++        {
++            do_composite_dxgi_surface(target, visual, dxgi_surface);
++            IDXGISurface_Release(dxgi_surface);
++        }
+     }
+ 
+     LIST_FOR_EACH_ENTRY(child_visual, &visual->child_visuals, struct composition_visual, entry)

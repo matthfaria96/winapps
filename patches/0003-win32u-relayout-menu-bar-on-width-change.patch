@@ -1,0 +1,33 @@
+Subject: [PATCH] win32u: Re-layout the menu bar when the window width changes.
+
+get_menu_bar_height() is called from WM_NCCALCSIZE with the new window width,
+but NtUserDrawMenuBarTemp() only recomputes the layout when menu->Height is 0.
+Apps that build their menu while the window is still small (e.g. Notepad++)
+keep the bar wrapped to that old width forever, one or two items per line.
+
+---
+--- a/dlls/win32u/menu.c	2026-11-07 10:30:35
++++ b/dlls/win32u/menu.c	2026-11-07 10:30:35
+@@ -2240,10 +2240,22 @@
+ UINT get_menu_bar_height( HWND hwnd, UINT width, INT org_x, INT org_y )
+ {
+     RECT rect = { org_x, org_y, org_x + width, 0 };
++    struct menu *menu;
++    HMENU handle;
+     UINT height;
+     HDC hdc;
+ 
+     TRACE( "hwnd %p, width %d, at (%d, %d).\n", hwnd, width, org_x, org_y );
++
++    /* NtUserDrawMenuBarTemp only lays the bar out when its height is unknown.
++     * If the window width changed since the last layout (e.g. the menu was built
++     * while the window was still small), the items would stay wrapped to the old
++     * width forever, so invalidate the layout to recompute it for the new width. */
++    if ((handle = get_menu( hwnd )) && (menu = grab_menu_ptr( handle )))
++    {
++        if (!(menu->wFlags & MF_POPUP) && menu->Width != width) menu->Height = 0;
++        release_menu_ptr( menu );
++    }
+ 
+     hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | DCX_WINDOW );
+     height = NtUserDrawMenuBarTemp( hwnd, hdc, &rect, 0, 0 );

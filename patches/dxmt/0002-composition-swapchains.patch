@@ -1,0 +1,240 @@
+From d8ce462055bb2938339c2cf7ff8c6718bec6897d Mon Sep 17 00:00:00 2001
+From: WinApps <winapps@local>
+Date: Sat, 7 Nov 2026 15:24:49 -0300
+Subject: [PATCH 2/2] =?UTF-8?q?WinApps:=20swapchains=20de=20composi=C3=A7?=
+ =?UTF-8?q?=C3=A3o=20(CreateSwapChainForComposition=20+=20BindToWindow)=20?=
+ =?UTF-8?q?e=20GetBuffer>0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ src/d3d11/d3d11_swapchain.cpp | 95 ++++++++++++++++++++++++++++-------
+ src/dxgi/dxgi_factory.cpp     | 16 +++++-
+ 2 files changed, 92 insertions(+), 19 deletions(-)
+
+diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
+index 5e9404d..2053542 100644
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -113,6 +113,15 @@ public:
+   };
+ };
+ 
++/* WinApps: swapchains de composição (DirectComposition). Nascem sem janela; o
++ * dcomp do Wine chama BindToWindow(hwnd do alvo) e daí em diante apresentam nele.
++ * {7f3a2c1e-5b8d-4e6f-9a0b-1c2d3e4f5a6b} */
++static const GUID IID_IDXMTCompositionSwapChain =
++    {0x7f3a2c1e, 0x5b8d, 0x4e6f, {0x9a, 0x0b, 0x1c, 0x2d, 0x3e, 0x4f, 0x5a, 0x6b}};
++struct IDXMTCompositionSwapChain : public IUnknown {
++  virtual HRESULT STDMETHODCALLTYPE BindToWindow(HWND hwnd) = 0;
++};
++
+ template <bool EnableMetalFX>
+ class MTLD3D11SwapChain final : public MTLDXGISubObject<IDXGISwapChain4, MTLD3D11Device> {
+ public:
+@@ -128,23 +137,27 @@ public:
+       desc_(*pDesc),
+       device_context_(pDevice->GetImmediateContextPrivate()),
+       hWnd(hWnd),
+-      monitor_(wsi::getWindowMonitor(hWnd)),
++      monitor_(hWnd ? wsi::getWindowMonitor(hWnd) : MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY)),
+       hud(WMT::DeveloperHUDProperties::instance()) {
+ 
+-    native_view_ = WMT::CreateMetalViewFromHWND((intptr_t)hWnd, pDevice->GetMTLDevice(), layer_weak_);
++    binder_.owner = this;
++    if (hWnd) {
++      native_view_ = WMT::CreateMetalViewFromHWND((intptr_t)hWnd, pDevice->GetMTLDevice(), layer_weak_);
+ 
+-    if (!native_view_) {
+-      ERR("Failed to create metal view, it seems like your Wine has no exported symbols needed by DXMT.");
+-      abort();
++      if (!native_view_) {
++        ERR("Failed to create metal view, it seems like your Wine has no exported symbols needed by DXMT.");
++        abort();
++      }
+     }
+ 
+     if constexpr (EnableMetalFX) {
+       scale_factor = std::max(Config::getInstance().getOption<float>("d3d11.metalSpatialUpscaleFactor", 2), 1.0f);
+     }
+ 
+-    presenter = Rc(new Presenter(pDevice->GetMTLDevice(), layer_weak_,
+-                                 pDevice->GetDXMTDevice().queue().cmd_library,
+-                                 scale_factor, desc_.SampleDesc.Count));
++    if (hWnd)
++      presenter = Rc(new Presenter(pDevice->GetMTLDevice(), layer_weak_,
++                                   pDevice->GetDXMTDevice().queue().cmd_library,
++                                   scale_factor, desc_.SampleDesc.Count));
+ 
+     frame_latency = kSwapchainLatency;
+     present_semaphore_ = CreateSemaphore(nullptr, frame_latency,
+@@ -206,7 +219,8 @@ public:
+ 
+   ~MTLD3D11SwapChain() {
+     device_context_->WaitUntilGPUIdle();
+-    WMT::ReleaseMetalView(native_view_);
++    if (hWnd)
++      WMT::ReleaseMetalView(native_view_);
+     native_view_ = {};
+     CloseHandle(present_semaphore_);
+   };
+@@ -229,6 +243,12 @@ public:
+       return S_OK;
+     }
+ 
++    if (riid == IID_IDXMTCompositionSwapChain && !hWnd) {
++      AddRef();
++      *ppvObject = static_cast<IDXMTCompositionSwapChain *>(&binder_);
++      return S_OK;
++    }
++
+     if (logQueryInterfaceError(__uuidof(IDXGISwapChain1), riid)) {
+       WARN("DXGISwapChain: Unknown interface query ", str::format(riid));
+     }
+@@ -251,7 +271,9 @@ public:
+   HRESULT
+   STDMETHODCALLTYPE
+   GetBuffer(UINT buffer_idx, REFIID riid, void **surface) final {
+-    if (buffer_idx == 0) {
++    /* WinApps: DXMT tem um único backbuffer; swapchains "flip" com 2+ buffers (Chromium)
++       pedem índices > 0 — devolve o mesmo, que é o que será apresentado */
++    if (buffer_idx == 0 || buffer_idx < desc_.BufferCount) {
+       return backbuffer_->QueryInterface(riid, surface);
+     } else {
+       ERR("Non zero-index buffer is not supported");
+@@ -574,6 +596,8 @@ public:
+   };
+ 
+   void ApplyLayerProps() {
++    if (!presenter)
++      return;
+     auto target_color_space =
+         ConvertColorSpace(desc_.Format == DXGI_FORMAT_R16G16B16A16_FLOAT
+                               ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709
+@@ -747,6 +771,14 @@ public:
+     if (PresentFlags & DXGI_PRESENT_TEST)
+       return hr;
+ 
++    if (!presenter) {
++      // composição ainda sem janela (antes do BindToWindow): executa os comandos e descarta o quadro
++      std::unique_lock<d3d11_device_mutex> lock(device_->mutex);
++      device_context_->PrepareFlush();
++      device_context_->Commit();
++      return S_OK;
++    }
++
+     if (should_exit_fs)
+       SetFullscreenState(FALSE, nullptr);
+ 
+@@ -1023,7 +1055,7 @@ public:
+   HRESULT STDMETHODCALLTYPE
+   SetColorSpace1(DXGI_COLOR_SPACE_TYPE ColorSpace) override {
+     auto target_color_space = ConvertColorSpace(ColorSpace, LayerSupportEDR());
+-    if (presenter->changeLayerColorSpace(target_color_space))
++    if (presenter && presenter->changeLayerColorSpace(target_color_space))
+       device_context_->WaitUntilGPUIdle();
+     colorspace_ = ColorSpace;
+     return S_OK;
+@@ -1034,13 +1066,13 @@ public:
+                                            void *pMetaData) override {
+                                             return S_OK;
+     if (Type == DXGI_HDR_METADATA_TYPE_NONE) {
+-      presenter->changeHDRMetadata(nullptr);
++      if (presenter) presenter->changeHDRMetadata(nullptr);
+       return S_OK;
+     }
+     if (Type == DXGI_HDR_METADATA_TYPE_HDR10) {
+       if (Size != sizeof(WMTHDRMetadata))
+         return E_INVALIDARG;
+-      presenter->changeHDRMetadata(reinterpret_cast<const WMTHDRMetadata *>(pMetaData));
++      if (presenter) presenter->changeHDRMetadata(reinterpret_cast<const WMTHDRMetadata *>(pMetaData));
+       return S_OK;
+     }
+     return DXGI_ERROR_UNSUPPORTED;
+@@ -1049,12 +1081,40 @@ public:
+ private:
+   bool LayerSupportEDR() {
+     WMTEDRValue edr_value;
+-    MetalLayer_getEDRValue(layer_weak_, &edr_value);
++    if (presenter) MetalLayer_getEDRValue(layer_weak_, &edr_value);
+     return edr_value.maximum_potential_edr_color_component_value > 1.0f;
+   };
+ 
+   Com<IDXGIFactory1> factory_;
+   Com<IMTLDXGIDevice> dxgi_device_;
++public:
++  HRESULT BindToWindowImpl(HWND hwnd) {
++    std::unique_lock<d3d11_device_mutex> lock(device_->mutex);
++    if (presenter)
++      return hwnd == hWnd ? S_OK : DXGI_ERROR_INVALID_CALL;
++    native_view_ = WMT::CreateMetalViewFromHWND((intptr_t)hwnd, device_->GetMTLDevice(), layer_weak_);
++    if (!native_view_) {
++      ERR("BindToWindow: failed to create metal view for ", hwnd);
++      return E_FAIL;
++    }
++    hWnd = hwnd;
++    monitor_ = wsi::getWindowMonitor(hwnd);
++    presenter = Rc(new Presenter(device_->GetMTLDevice(), layer_weak_,
++                                 device_->GetDXMTDevice().queue().cmd_library,
++                                 scale_factor, desc_.SampleDesc.Count));
++    ApplyLayerProps();
++    return S_OK;
++  }
++
++private:
++  struct CompositionBinder final : public IDXMTCompositionSwapChain {
++    MTLD3D11SwapChain *owner = nullptr;
++    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override { return owner->QueryInterface(riid, ppv); }
++    ULONG STDMETHODCALLTYPE AddRef() override { return owner->AddRef(); }
++    ULONG STDMETHODCALLTYPE Release() override { return owner->Release(); }
++    HRESULT STDMETHODCALLTYPE BindToWindow(HWND hwnd) override { return owner->BindToWindowImpl(hwnd); }
++  } binder_;
++
+   WMT::Object native_view_;
+   WMT::MetalLayer layer_weak_;
+   ULONG presentation_count_;
+@@ -1096,9 +1156,10 @@ CreateSwapChain(
+     return DXGI_ERROR_INVALID_CALL;
+   InitReturnPtr(ppSwapChain);
+ 
+-  DWORD window_process_id;
+-  GetWindowThreadProcessId(hWnd, &window_process_id);
+-  if (GetProcessId(GetCurrentProcess()) != window_process_id) {
++  DWORD window_process_id = 0;
++  if (hWnd)  // hWnd nulo = swapchain de composição (ligado depois via BindToWindow)
++    GetWindowThreadProcessId(hWnd, &window_process_id);
++  if (hWnd && GetProcessId(GetCurrentProcess()) != window_process_id) {
+     ERR("CreateSwapChain: cross-process swapchain not supported yet");
+     return E_FAIL;
+   }
+diff --git a/src/dxgi/dxgi_factory.cpp b/src/dxgi/dxgi_factory.cpp
+index 0b3fa09..16b6227 100644
+--- a/src/dxgi/dxgi_factory.cpp
++++ b/src/dxgi/dxgi_factory.cpp
+@@ -149,8 +149,20 @@ public:
+       IDXGIOutput *pRestrictToOutput, IDXGISwapChain1 **ppSwapChain) final {
+     InitReturnPtr(ppSwapChain);
+ 
+-    ERR("Not implemented");
+-    return E_NOTIMPL;
++    if (!ppSwapChain || !pDesc || !pDevice || !pDesc->Width || !pDesc->Height)
++      return DXGI_ERROR_INVALID_CALL;
++
++    Com<IMTLDXGIDevice> metal_dxgi_device;
++    if (FAILED(pDevice->QueryInterface(IID_PPV_ARGS(&metal_dxgi_device)))) {
++      ERR("Unsupported device type");
++      return DXGI_ERROR_UNSUPPORTED;
++    }
++
++    /* WinApps: swapchain sem janela; o DirectComposition do Wine liga ao alvo
++       (IDXMTCompositionSwapChain::BindToWindow) */
++    DXGI_SWAP_CHAIN_FULLSCREEN_DESC fsDesc = {};
++    fsDesc.Windowed = TRUE;
++    return metal_dxgi_device->CreateSwapChain(this, nullptr, pDesc, &fsDesc, ppSwapChain);
+   }
+ 
+   HRESULT STDMETHODCALLTYPE EnumAdapters(UINT Adapter,
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,0 +1,907 @@
+diff -ruN pa/dlls/win32u/window.c pb/dlls/win32u/window.c
+--- a/dlls/win32u/window.c	2026-11-07 14:02:07
++++ b/dlls/win32u/window.c	2026-11-07 14:03:26
+@@ -2222,6 +2222,15 @@
+     return TRUE;
+ }
+ 
++/* Child window whose top-level window belongs to another process: that process cannot
++ * draw it into its window surface, so let it have a surface of its own (the driver
++ * decides through WindowPosChanging, see winemac's remote surfaces). */
++static BOOL is_remote_root_child( HWND hwnd )
++{
++    HWND root = NtUserGetAncestor( hwnd, GA_ROOT );
++    return root && root != hwnd && !is_current_process_window( root );
++}
++
+ static struct window_surface *get_window_surface( HWND hwnd, UINT swp_flags, BOOL create_layered,
+                                                   struct window_rects *rects, RECT *surface_rect )
+ {
+@@ -2249,7 +2258,7 @@
+     else monitor_rects = map_window_rects_virt_to_raw( *rects, get_thread_dpi() );
+ 
+     if (!user_driver->pWindowPosChanging( hwnd, swp_flags, shaped, &monitor_rects )) needs_surface = FALSE;
+-    else if (is_child) needs_surface = FALSE;
++    else if (is_child && !is_remote_root_child( hwnd )) needs_surface = FALSE;
+     else if (swp_flags & SWP_HIDEWINDOW) needs_surface = FALSE;
+     else if (swp_flags & SWP_SHOWWINDOW) needs_surface = TRUE;
+     else needs_surface = !!(style & WS_VISIBLE);
+diff -ruN pa/dlls/winemac.drv/cocoa_app.m pb/dlls/winemac.drv/cocoa_app.m
+--- a/dlls/winemac.drv/cocoa_app.m	2026-11-07 14:02:07
++++ b/dlls/winemac.drv/cocoa_app.m	2026-11-07 15:22:28
+@@ -22,6 +22,12 @@
+ #import "macdrv.h"
+ 
+ #import "cocoa_app.h"
++#include <sys/mman.h>
++#include <dlfcn.h>
++#include <errno.h>
++#include <signal.h>
++#include <sys/stat.h>
++#include <fcntl.h>
+ #import "cocoa_cursorclipping.h"
+ #import "cocoa_event.h"
+ #import "cocoa_window.h"
+@@ -2972,5 +2978,267 @@
+ 
+ void macdrv_program_menu_window_became_key(WineWindow* window)
+ {
++    macdrv_remote_surfaces_start();
+     if (native_menubar) [[WineProgramMenuController sharedController] windowBecameKey:window];
++}
++
++
++/*
++ * ---------- Remote surfaces (see surface.c) ----------
++ *
++ * Producer side: a CAContext whose layer tree the window server can show in any
++ * process. Owner side: a CALayerHost per child window of ours that belongs to
++ * another process, placed over that child's area. Same mechanism as Chromium/WebKit.
++ */
++@interface CAContext : NSObject
+++ (id) contextWithCGSConnection:(unsigned int)connection options:(NSDictionary *)options;
++@property (readonly) unsigned int contextId;
++@property (retain) CALayer *layer;
++@end
++
++@interface CALayerHost : CALayer
++@property unsigned int contextId;
++@end
++
++static unsigned int window_server_connection(void)
++{
++    static unsigned int (*pCGSMainConnectionID)(void);
++    if (!pCGSMainConnectionID) pCGSMainConnectionID = dlsym(RTLD_DEFAULT, "CGSMainConnectionID");
++    return pCGSMainConnectionID ? pCGSMainConnectionID() : 0;
++}
++
++void *macdrv_remote_context_create(WineContentView *view, unsigned int *context_id)
++{
++    __block CAContext *context = nil;
++    __block unsigned int cid = 0;
++
++    OnMainThread(^{
++        Class cls = NSClassFromString(@"CAContext");
++        CALayer *layer;
++        if (!cls) return;
++        if (view)
++        {
++            [view setWantsLayer:YES];
++            layer = [view layer];
++        }
++        else
++        {
++            layer = [CALayer layer];
++            layer.anchorPoint = CGPointZero;
++            layer.contentsGravity = kCAGravityTopLeft;
++        }
++        context = [[cls contextWithCGSConnection:window_server_connection() options:@{}] retain];
++        context.layer = layer;
++        cid = context.contextId;
++    });
++    *context_id = cid;
++    return context;
++}
++
++void macdrv_remote_context_set_image(void *ctx, CGImageRef image, CGRect rect)
++{
++    CAContext *context = ctx;
++    if (!context) return;
++    CGImageRetain(image);
++    OnMainThreadAsync(^{
++        CGRect frame = cgrect_mac_from_win(rect);
++        [CATransaction begin];
++        [CATransaction setDisableActions:YES];
++        context.layer.bounds = CGRectMake(0, 0, frame.size.width, frame.size.height);
++        context.layer.position = CGPointZero;
++        context.layer.contentsScale = retina_on ? 2.0 : 1.0;
++        context.layer.contents = (id)image;
++        [CATransaction commit];
++        CGImageRelease(image);
++    });
++}
++
++void *macdrv_remote_metal_layer_create(void *device, CGRect rect, unsigned int *context_id, void **layer_out)
++{
++    __block CAContext *context = nil;
++    __block CALayer *metal = nil;
++    __block unsigned int cid = 0;
++
++    OnMainThread(^{
++        Class cls = NSClassFromString(@"CAContext");
++        CALayer *root;
++        CGRect frame = cgrect_mac_from_win(rect);
++        if (!cls) return;
++        root = [CALayer layer];
++        root.anchorPoint = CGPointZero;
++        root.bounds = CGRectMake(0, 0, frame.size.width, frame.size.height);
++        metal = [[NSClassFromString(@"CAMetalLayer") alloc] init];
++        [metal setValue:(id)device forKey:@"device"];
++        metal.anchorPoint = CGPointZero;
++        metal.position = CGPointZero;
++        metal.bounds = root.bounds;
++        metal.contentsScale = retina_on ? 2.0 : 1.0;
++        metal.opaque = YES;
++        [root addSublayer:metal];
++        context = [[cls contextWithCGSConnection:window_server_connection() options:@{}] retain];
++        context.layer = root;
++        cid = context.contextId;
++    });
++    *context_id = cid;
++    *layer_out = metal;  /* owned by the context's root; released with it */
++    if (metal) [metal release];
++    return context;
++}
++
++void macdrv_remote_metal_layer_resize(void *ctx, CGRect rect)
++{
++    CAContext *context = ctx;
++    if (!context) return;
++    OnMainThreadAsync(^{
++        CGRect frame = cgrect_mac_from_win(rect);
++        CGRect bounds = CGRectMake(0, 0, frame.size.width, frame.size.height);
++        [CATransaction begin];
++        [CATransaction setDisableActions:YES];
++        context.layer.bounds = bounds;
++        for (CALayer *sub in context.layer.sublayers) sub.bounds = bounds;
++        [CATransaction commit];
++    });
++}
++
++void macdrv_remote_context_release(void *ctx)
++{
++    CAContext *context = ctx;
++    if (!context) return;
++    OnMainThreadAsync(^{
++        context.layer = nil;
++        [context release];
++    });
++}
++
++struct remote_surface_header_view
++{
++    unsigned int  magic, version, seq, visible;
++    int           x, y, width, height;
++    unsigned int  context_id, kind, pid, pad[5];
++};
++
++@interface WineRemoteLayer : NSObject
++{
++@public
++    CALayer *container;
++    CALayerHost *host;
++    void *map;
++    unsigned int seq;
++}
++@end
++
++@implementation WineRemoteLayer
++    - (void) dealloc
++    {
++        if (map) munmap(map, sizeof(struct remote_surface_header_view));
++        [container removeFromSuperlayer];
++        [container release];
++        [host release];
++        [super dealloc];
++    }
++@end
++
++static NSMutableDictionary *remote_layers;
++
++static void remote_surfaces_poll(void)
++{
++    char base[512], dir[512];
++    struct stat st;
++    NSMutableSet *seen;
++
++    macdrv_remote_surface_dir(base, sizeof(base), NULL);
++    if (stat(base, &st))
++    {
++        if ([remote_layers count]) [remote_layers removeAllObjects];
++        return;
++    }
++
++    seen = [NSMutableSet set];
++    for (NSWindow *w in [NSApp windows])
++    {
++        NSArray *files;
++        NSView *view;
++
++        if (![w isKindOfClass:[WineWindow class]]) continue;
++        macdrv_remote_surface_dir(dir, sizeof(dir), macdrv_get_window_hwnd((WineWindow *)w));
++        files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:[NSString stringWithUTF8String:dir] error:NULL];
++        if (![files count]) continue;
++        view = [w contentView];
++
++        for (NSString *f in files)
++        {
++            NSString *ident = [NSString stringWithFormat:@"%s/%@", dir, f];
++            WineRemoteLayer *r = remote_layers[ident];
++            struct remote_surface_header_view *h;
++            unsigned int seq;
++
++            if (![f hasSuffix:@".surf"]) continue;
++            if (!r)
++            {
++                int fd = open([ident fileSystemRepresentation], O_RDONLY);
++                void *map;
++                if (fd < 0) continue;
++                map = mmap(NULL, sizeof(*h), PROT_READ, MAP_SHARED, fd, 0);
++                close(fd);
++                if (map == MAP_FAILED) continue;
++                r = [[[WineRemoteLayer alloc] init] autorelease];
++                r->map = map;
++                r->seq = ~0u;
++                remote_layers[ident] = r;
++            }
++            h = r->map;
++            if (__atomic_load_n(&h->magic, __ATOMIC_ACQUIRE) != 0x53524d57) { [seen addObject:ident]; continue; }
++            if (h->pid && kill(h->pid, 0) && errno == ESRCH)
++            {
++                unlink([ident fileSystemRepresentation]);  /* left behind by a dead process */
++                continue;
++            }
++            [seen addObject:ident];
++            seq = __atomic_load_n(&h->seq, __ATOMIC_ACQUIRE);
++            if (seq == r->seq && r->container.superlayer == view.layer) continue;
++            r->seq = seq;
++
++            if (![view wantsLayer]) [view setWantsLayer:YES];
++            if (!r->container)
++            {
++                r->container = [[CALayer alloc] init];
++                r->container.anchorPoint = CGPointZero;
++                r->container.masksToBounds = YES;
++                r->host = [[NSClassFromString(@"CALayerHost") alloc] init];
++                r->host.anchorPoint = CGPointZero;
++                [r->container addSublayer:r->host];
++            }
++            if (r->container.superlayer != view.layer) [view.layer addSublayer:r->container];
++
++            [CATransaction begin];
++            [CATransaction setDisableActions:YES];
++            {
++                CGRect frame = cgrect_mac_from_win(CGRectMake(h->x, h->y, h->width, h->height));
++                if (r->host.contextId != h->context_id) r->host.contextId = h->context_id;
++                r->container.zPosition = 1000 + h->kind;   /* GPU content above GDI content */
++                r->container.hidden = !h->visible || !h->context_id;
++                r->container.position = frame.origin;
++                r->container.bounds = CGRectMake(0, 0, frame.size.width, frame.size.height);
++                r->host.position = CGPointZero;
++            }
++            [CATransaction commit];
++        }
++    }
++
++    for (NSString *ident in [remote_layers allKeys])
++        if (![seen containsObject:ident]) [remote_layers removeObjectForKey:ident];
++}
++
++void macdrv_remote_surfaces_start(void)
++{
++    static dispatch_once_t once;
++    dispatch_once(&once, ^{
++        dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
++        remote_layers = [[NSMutableDictionary alloc] init];
++        dispatch_source_set_timer(timer, DISPATCH_TIME_NOW, NSEC_PER_SEC / 60, NSEC_PER_MSEC * 4);
++        dispatch_source_set_event_handler(timer, ^{
++            @autoreleasepool { remote_surfaces_poll(); }
++        });
++        dispatch_resume(timer);
++    });
+ }
+diff -ruN pa/dlls/winemac.drv/macdrv.h pb/dlls/winemac.drv/macdrv.h
+--- a/dlls/winemac.drv/macdrv.h	2026-11-07 14:02:07
++++ b/dlls/winemac.drv/macdrv.h	2026-11-07 15:22:28
+@@ -245,13 +245,21 @@
+     unsigned int        fullscreen : 1;         /* is the window visible rect fullscreen? (unrelated to native AppKit/Cocoa fullscreen) */
+ };
+ 
++struct remote_header;
+ struct macdrv_client_surface
+ {
+     struct client_surface   client;
+     WineContentView        *cocoa_view;
+     WineMetalSwapChain_id   metal_swapchain;
++    void                   *remote_context;  /* CAContext, when the top-level is in another process */
++    struct remote_header   *remote;
+ };
+ 
++extern void macdrv_remote_client_surface_init(struct macdrv_client_surface *surface);
++extern void macdrv_remote_client_surface_update(struct macdrv_client_surface *surface);
++extern void macdrv_remote_client_surface_presented(struct macdrv_client_surface *surface);
++extern void macdrv_remote_client_surface_destroy(struct macdrv_client_surface *surface);
++
+ extern struct macdrv_client_surface *impl_from_client_surface(struct client_surface *client);
+ extern bool macdrv_client_surface_acquire_metal_swapchain(struct macdrv_client_surface *surface);
+ 
+@@ -284,6 +292,13 @@
+ extern bool query_resize_size(HWND hwnd, macdrv_query *query);
+ extern bool query_resize_start(HWND hwnd);
+ extern bool query_min_max_info(HWND hwnd);
++extern bool macdrv_is_remote_root_child(HWND hwnd);
++extern void macdrv_dbg(const char *fmt, ...);
++extern void *macdrv_remote_metal_create(HWND hwnd, void *device);
++extern void *macdrv_remote_metal_layer(void *handle);
++extern void macdrv_remote_metal_release(void *handle);
++extern void macdrv_remote_metal_update(HWND hwnd);
++extern void macdrv_remote_surface_update(HWND hwnd, struct window_surface *surface);
+ extern bool query_menu_snapshot(HWND hwnd, macdrv_query *query);
+ extern bool query_menu_command(HWND hwnd, macdrv_query *query);
+ 
+diff -ruN pa/dlls/winemac.drv/macdrv_cocoa.h pb/dlls/winemac.drv/macdrv_cocoa.h
+--- a/dlls/winemac.drv/macdrv_cocoa.h	2026-11-07 14:02:07
++++ b/dlls/winemac.drv/macdrv_cocoa.h	2026-11-07 15:22:28
+@@ -479,6 +479,13 @@
+         CGRect frame, void* hwnd, WineEventQueue *queue);
+ extern void macdrv_destroy_cocoa_window(WineWindow *window);
+ extern void* macdrv_get_window_hwnd(WineWindow *window);
++extern int macdrv_remote_surface_dir(char *buf, size_t size, void *root_hwnd);
++extern void macdrv_remote_surfaces_start(void);
++extern void *macdrv_remote_context_create(WineContentView *view, unsigned int *context_id);
++extern void macdrv_remote_context_set_image(void *context, CGImageRef image, CGRect rect);
++extern void macdrv_remote_context_release(void *context);
++extern void *macdrv_remote_metal_layer_create(void *device, CGRect rect, unsigned int *context_id, void **layer);
++extern void macdrv_remote_metal_layer_resize(void *context, CGRect rect);
+ extern void macdrv_set_cocoa_window_features(WineWindow *window,
+         const struct macdrv_window_features* wf);
+ extern void macdrv_set_cocoa_window_state(WineWindow *window,
+diff -ruN pa/dlls/winemac.drv/surface.c pb/dlls/winemac.drv/surface.c
+--- a/dlls/winemac.drv/surface.c	2026-11-07 14:02:07
++++ b/dlls/winemac.drv/surface.c	2026-11-07 15:22:28
+@@ -26,6 +26,7 @@
+ 
+ #include "config.h"
+ #include "macdrv.h"
++#include "wine/list.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(bitblt);
+ 
+@@ -222,6 +223,378 @@
+ 
+ 
+ /***********************************************************************
++ *              Remote surfaces
++ *
++ * A child window whose top-level window belongs to another process (e.g. the
++ * WebView2/Chromium windows embedded in an application window) cannot be attached
++ * to that process' Cocoa window. Its content is put in a CAContext instead, whose
++ * layers the process owning the top-level shows with a CALayerHost (the same
++ * mechanism Chromium and WebKit use on macOS). A small shared file announces the
++ * context id and where the child is: <dir>/<child hwnd>-<serial>.surf.
++ */
++#include <sys/mman.h>
++#include <pthread.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++
++#define REMOTE_SURFACE_MAGIC 0x53524d57 /* 'WMRS' */
++
++struct remote_surface_header
++{
++    unsigned int  magic;
++    unsigned int  version;
++    volatile unsigned int seq;      /* incremented on every change */
++    unsigned int  visible;
++    int           x, y;             /* relative to the root window's client area (raw pixels) */
++    int           width, height;
++    unsigned int  context_id;       /* CAContext id to show with a CALayerHost */
++    unsigned int  kind;             /* 0: window surface (GDI), 1: client surface (GPU) */
++    unsigned int  pid;              /* producer, to drop files of dead processes */
++    unsigned int  frames;           /* number of images presented (diagnostics) */
++    unsigned int  pad[4];
++};
++
++struct remote_header
++{
++    struct remote_surface_header *shared;
++    char path[512];
++};
++
++int macdrv_remote_surface_dir(char *buf, size_t size, void *root_hwnd)
++{
++    const char *tmp = getenv("TMPDIR"), *prefix = getenv("WINEPREFIX");
++    unsigned int hash = 5381;
++    const char *p;
++
++    if (!tmp || !*tmp) tmp = "/tmp";
++    for (p = prefix ? prefix : "default"; *p; p++) hash = hash * 33 + (unsigned char)*p;
++    if (root_hwnd)
++        return snprintf(buf, size, "%s/winemac-remote-%u-%08x/%08lx", tmp, (unsigned int)getuid(), hash,
++                        (unsigned long)(ULONG_PTR)root_hwnd);
++    return snprintf(buf, size, "%s/winemac-remote-%u-%08x", tmp, (unsigned int)getuid(), hash);
++}
++
++
++#include <stdarg.h>
++/* desenvolvimento: WINEMAC_DEBUG_LOG=<arquivo> */
++void macdrv_dbg(const char *fmt, ...)
++{
++    static FILE *f; const char *p = getenv("WINEMAC_DEBUG_LOG"); va_list ap;
++    if (!p) return;
++    if (!f && !(f = fopen(p, "a"))) return;
++    fprintf(f, "[pid %d] ", (int)getpid());
++    va_start(ap, fmt); vfprintf(f, fmt, ap); va_end(ap); fflush(f);
++}
++
++bool macdrv_is_remote_root_child(HWND hwnd)
++{
++    DWORD pid = 0;
++    HWND root = NtUserGetAncestor(hwnd, GA_ROOT);
++
++    if (!root || root == hwnd) return FALSE;
++    NtUserGetWindowThread(root, &pid);
++    return pid && pid != GetCurrentProcessId();
++}
++
++static void remote_header_update(struct remote_header *hdr, HWND hwnd)
++{
++    HWND root = NtUserGetAncestor(hwnd, GA_ROOT);
++    UINT dpi = NtUserGetWinMonitorDpi(hwnd, MDT_RAW_DPI);
++    POINT origin = {0, 0};
++    RECT rect;
++
++    if (!hdr->shared) return;
++    /* the client area, relative to the root's client area (what its Cocoa content view shows) */
++    if (!NtUserGetClientRect(hwnd, &rect, dpi)) return;
++    NtUserMapWindowPoints(hwnd, 0, (POINT *)&rect, 2, dpi);
++    NtUserMapWindowPoints(root, 0, &origin, 1, dpi);
++    hdr->shared->x = rect.left - origin.x;
++    hdr->shared->y = rect.top - origin.y;
++    hdr->shared->width = rect.right - rect.left;
++    hdr->shared->height = rect.bottom - rect.top;
++    hdr->shared->visible = NtUserIsWindowVisible(hwnd);
++    __atomic_add_fetch(&hdr->shared->seq, 1, __ATOMIC_RELEASE);
++}
++
++static BOOL remote_header_create(struct remote_header *hdr, HWND hwnd, unsigned int kind, unsigned int context_id)
++{
++    static LONG serial;
++    char dir[480];
++    int fd;
++
++    macdrv_remote_surface_dir(dir, sizeof(dir), NULL);
++    mkdir(dir, 0700);
++    macdrv_remote_surface_dir(dir, sizeof(dir), NtUserGetAncestor(hwnd, GA_ROOT));
++    mkdir(dir, 0700);
++    snprintf(hdr->path, sizeof(hdr->path), "%s/%08lx-%08x.surf", dir, (unsigned long)(ULONG_PTR)hwnd,
++             (unsigned int)InterlockedIncrement(&serial));
++
++    if ((fd = open(hdr->path, O_RDWR | O_CREAT | O_TRUNC, 0600)) < 0) return FALSE;
++    if (ftruncate(fd, sizeof(*hdr->shared)) ||
++        (hdr->shared = mmap(NULL, sizeof(*hdr->shared), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)) == MAP_FAILED)
++    {
++        hdr->shared = NULL;
++        close(fd);
++        unlink(hdr->path);
++        return FALSE;
++    }
++    close(fd);
++    hdr->shared->version = 2;
++    hdr->shared->kind = kind;
++    hdr->shared->context_id = context_id;
++    hdr->shared->pid = getpid();
++    remote_header_update(hdr, hwnd);
++    __atomic_store_n(&hdr->shared->magic, REMOTE_SURFACE_MAGIC, __ATOMIC_RELEASE);
++    TRACE("hwnd %p kind %u context %u -> %s\n", hwnd, kind, context_id, debugstr_a(hdr->path));
++    return TRUE;
++}
++
++static void remote_header_destroy(struct remote_header *hdr)
++{
++    if (hdr->shared) munmap(hdr->shared, sizeof(*hdr->shared));
++    if (hdr->path[0]) unlink(hdr->path);
++    hdr->shared = NULL;
++    hdr->path[0] = 0;
++}
++
++/* client surfaces (OpenGL/Vulkan/D3D) of remote root children: share the view's layers */
++void macdrv_remote_client_surface_init(struct macdrv_client_surface *surface)
++{
++    struct remote_header *hdr;
++    unsigned int context_id = 0;
++
++    if (!(hdr = calloc(1, sizeof(*hdr)))) return;
++    if (!(surface->remote_context = macdrv_remote_context_create(surface->cocoa_view, &context_id)) ||
++        !remote_header_create(hdr, surface->client.hwnd, 1, context_id))
++    {
++        if (surface->remote_context) macdrv_remote_context_release(surface->remote_context);
++        surface->remote_context = NULL;
++        free(hdr);
++        return;
++    }
++    surface->remote = hdr;
++}
++
++void macdrv_remote_client_surface_presented(struct macdrv_client_surface *surface)
++{
++    if (surface->remote && surface->remote->shared)
++        __atomic_add_fetch(&surface->remote->shared->frames, 1, __ATOMIC_RELAXED);
++}
++
++void macdrv_remote_client_surface_update(struct macdrv_client_surface *surface)
++{
++    if (surface->remote) remote_header_update(surface->remote, surface->client.hwnd);
++}
++
++void macdrv_remote_client_surface_destroy(struct macdrv_client_surface *surface)
++{
++    if (surface->remote)
++    {
++        remote_header_destroy(surface->remote);
++        free(surface->remote);
++        surface->remote = NULL;
++    }
++    if (surface->remote_context) macdrv_remote_context_release(surface->remote_context);
++    surface->remote_context = NULL;
++}
++
++
++/* standalone CAMetalLayers for DXMT swapchains of remote root children
++ * (a view-backed layer outside any window is not updated by AppKit) */
++struct remote_metal
++{
++    struct list           entry;
++    HWND                  hwnd;
++    void                 *context;   /* CAContext */
++    void                 *layer;     /* CAMetalLayer */
++    struct remote_header  hdr;
++};
++
++static struct list remote_metals = LIST_INIT(remote_metals);
++static pthread_mutex_t remote_metals_mutex = PTHREAD_MUTEX_INITIALIZER;
++
++static CGRect remote_client_rect(HWND hwnd)
++{
++    RECT rect = {0};
++    NtUserGetClientRect(hwnd, &rect, NtUserGetWinMonitorDpi(hwnd, MDT_RAW_DPI));
++    return cgrect_from_rect(rect);
++}
++
++void *macdrv_remote_metal_create(HWND hwnd, void *device)
++{
++    struct remote_metal *rm;
++    unsigned int context_id = 0;
++
++    if (!(rm = calloc(1, sizeof(*rm)))) return NULL;
++    rm->hwnd = hwnd;
++    if (!(rm->context = macdrv_remote_metal_layer_create(device, remote_client_rect(hwnd), &context_id, &rm->layer)))
++    {
++        free(rm);
++        return NULL;
++    }
++    remote_header_create(&rm->hdr, hwnd, 1, context_id);
++    pthread_mutex_lock(&remote_metals_mutex);
++    list_add_tail(&remote_metals, &rm->entry);
++    pthread_mutex_unlock(&remote_metals_mutex);
++    macdrv_dbg("remote metal hwnd %p context %u layer %p\n", hwnd, context_id, rm->layer);
++    return (void *)((ULONG_PTR)rm | 1);
++}
++
++void *macdrv_remote_metal_layer(void *handle)
++{
++    struct remote_metal *rm = (struct remote_metal *)((ULONG_PTR)handle & ~(ULONG_PTR)1);
++    return rm->layer;
++}
++
++void macdrv_remote_metal_release(void *handle)
++{
++    struct remote_metal *rm = (struct remote_metal *)((ULONG_PTR)handle & ~(ULONG_PTR)1);
++
++    pthread_mutex_lock(&remote_metals_mutex);
++    list_remove(&rm->entry);
++    pthread_mutex_unlock(&remote_metals_mutex);
++    remote_header_destroy(&rm->hdr);
++    macdrv_remote_context_release(rm->context);  /* also releases the layer */
++    free(rm);
++}
++
++void macdrv_remote_metal_update(HWND hwnd)
++{
++    struct remote_metal *rm;
++
++    pthread_mutex_lock(&remote_metals_mutex);
++    LIST_FOR_EACH_ENTRY(rm, &remote_metals, struct remote_metal, entry)
++    {
++        if (rm->hwnd != hwnd) continue;
++        remote_header_update(&rm->hdr, hwnd);
++        macdrv_remote_metal_layer_resize(rm->context, remote_client_rect(hwnd));
++    }
++    pthread_mutex_unlock(&remote_metals_mutex);
++}
++
++/* window surfaces (GDI) of remote root children: the image goes to a shared layer */
++struct macdrv_remote_surface
++{
++    struct window_surface   header;
++    CGDataProviderRef       provider;
++    void                   *context;
++    struct remote_header    remote;
++};
++
++static const struct window_surface_funcs remote_surface_funcs;
++
++static struct macdrv_remote_surface *get_remote_surface(struct window_surface *surface)
++{
++    if (!surface || surface->funcs != &remote_surface_funcs) return NULL;
++    return (struct macdrv_remote_surface *)surface;
++}
++
++static void remote_surface_set_clip(struct window_surface *window_surface, const RECT *rects, UINT count)
++{
++}
++
++static BOOL remote_surface_flush(struct window_surface *window_surface, const RECT *rect, const RECT *dirty,
++                                 const BITMAPINFO *color_info, const void *color_bits, BOOL shape_changed,
++                                 const BITMAPINFO *shape_info, const void *shape_bits)
++{
++    struct macdrv_remote_surface *surface = get_remote_surface(window_surface);
++    CGColorSpaceRef colorspace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
++    CGImageRef image;
++
++    image = CGImageCreate(color_info->bmiHeader.biWidth, abs(color_info->bmiHeader.biHeight), 8, 32,
++                          color_info->bmiHeader.biSizeImage / abs(color_info->bmiHeader.biHeight), colorspace,
++                          kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little, surface->provider, NULL,
++                          retina_on, kCGRenderingIntentDefault);
++    CGColorSpaceRelease(colorspace);
++    macdrv_remote_context_set_image(surface->context, image, cgrect_from_rect(*rect));
++    CGImageRelease(image);
++    if (surface->remote.shared) __atomic_add_fetch(&surface->remote.shared->frames, 1, __ATOMIC_RELAXED);
++    return TRUE;
++}
++
++static void remote_surface_destroy(struct window_surface *window_surface)
++{
++    struct macdrv_remote_surface *surface = get_remote_surface(window_surface);
++
++    TRACE("freeing %p\n", surface);
++    remote_header_destroy(&surface->remote);
++    if (surface->context) macdrv_remote_context_release(surface->context);
++    CGDataProviderRelease(surface->provider);
++}
++
++static const struct window_surface_funcs remote_surface_funcs =
++{
++    .size = sizeof(struct macdrv_remote_surface),
++    .set_clip = remote_surface_set_clip,
++    .flush = remote_surface_flush,
++    .destroy = remote_surface_destroy,
++};
++
++static struct window_surface *create_remote_surface(HWND hwnd, const RECT *rect)
++{
++    int width = rect->right - rect->left, height = rect->bottom - rect->top;
++    D3DKMT_CREATEDCFROMMEMORY desc = {.Format = D3DDDIFMT_A8R8G8B8};
++    char buffer[FIELD_OFFSET(BITMAPINFO, bmiColors[256])];
++    BITMAPINFO *info = (BITMAPINFO *)buffer;
++    struct window_surface *window_surface;
++    struct macdrv_remote_surface *surface;
++    unsigned int context_id = 0;
++    CGDataProviderRef provider;
++    HBITMAP bitmap = 0;
++    void *bits, *context;
++
++    memset(info, 0, sizeof(*info));
++    info->bmiHeader.biSize        = sizeof(info->bmiHeader);
++    info->bmiHeader.biWidth       = width;
++    info->bmiHeader.biHeight      = -height; /* top-down */
++    info->bmiHeader.biPlanes      = 1;
++    info->bmiHeader.biBitCount    = 32;
++    info->bmiHeader.biSizeImage   = get_dib_image_size(info);
++    info->bmiHeader.biCompression = BI_RGB;
++
++    if (!(context = macdrv_remote_context_create(NULL, &context_id))) return NULL;
++    if (!(provider = data_provider_create(info->bmiHeader.biSizeImage, &bits)))
++    {
++        macdrv_remote_context_release(context);
++        return NULL;
++    }
++    memset(bits, 0xff, info->bmiHeader.biSizeImage);
++
++    desc.Width = width;
++    desc.Height = height;
++    desc.Pitch = info->bmiHeader.biSizeImage / height;
++    desc.pMemory = bits;
++    desc.hDeviceDc = NtUserGetDCEx(hwnd, 0, DCX_CACHE | DCX_WINDOW);
++    if (NtGdiDdDDICreateDCFromMemory(&desc)) ERR("Failed to create HBITMAP\n");
++    else
++    {
++        bitmap = desc.hBitmap;
++        NtGdiDeleteObjectApp(desc.hDc);
++    }
++    if (desc.hDeviceDc) NtUserReleaseDC(hwnd, desc.hDeviceDc);
++
++    if (!(window_surface = window_surface_create(&remote_surface_funcs, hwnd, rect, info, bitmap)))
++    {
++        if (bitmap) NtGdiDeleteObjectApp(bitmap);
++        CGDataProviderRelease(provider);
++        macdrv_remote_context_release(context);
++        return NULL;
++    }
++    surface = get_remote_surface(window_surface);
++    surface->provider = provider;
++    surface->context = context;
++    remote_header_create(&surface->remote, hwnd, 0, context_id);
++    return window_surface;
++}
++
++void macdrv_remote_surface_update(HWND hwnd, struct window_surface *window_surface)
++{
++    struct macdrv_remote_surface *surface = get_remote_surface(window_surface);
++    if (surface) remote_header_update(&surface->remote, hwnd);
++}
++
++/***********************************************************************
+  *              CreateWindowSurface   (MACDRV.@)
+  */
+ BOOL macdrv_CreateWindowSurface(HWND hwnd, BOOL layered, const RECT *surface_rect, struct window_surface **surface)
+@@ -231,9 +604,17 @@
+ 
+     TRACE("hwnd %p, layered %u, surface_rect %s, surface %p\n", hwnd, layered, wine_dbgstr_rect(surface_rect), surface);
+ 
+-    if ((previous = *surface) && previous->funcs == &macdrv_surface_funcs) return TRUE;
++    if ((previous = *surface) && (previous->funcs == &macdrv_surface_funcs ||
++                                  previous->funcs == &remote_surface_funcs)) return TRUE;
+     if (!(data = get_win_data(hwnd))) return TRUE; /* use default surface */
+     if (previous) window_surface_release(previous);
++
++    if (!data->cocoa_window && macdrv_is_remote_root_child(hwnd))
++    {
++        *surface = create_remote_surface(hwnd, surface_rect);
++        release_win_data(data);
++        return TRUE;
++    }
+ 
+     if (layered)
+     {
+diff -ruN pa/dlls/winemac.drv/window.c pb/dlls/winemac.drv/window.c
+--- a/dlls/winemac.drv/window.c	2026-11-07 14:02:07
++++ b/dlls/winemac.drv/window.c	2026-11-07 15:22:28
+@@ -1071,6 +1071,7 @@
+ 
+     TRACE("%s\n", debugstr_client_surface(client));
+ 
++    macdrv_remote_client_surface_destroy(surface);
+     if (surface->metal_swapchain) macdrv_destroy_swapchain(surface->metal_swapchain);
+ }
+ 
+@@ -1103,6 +1104,15 @@
+ 
+     TRACE("%s\n", debugstr_client_surface(client));
+ 
++    if (surface->remote_context)
++    {
++        /* shown by the other process at the right place: only the size matters here */
++        RECT rect = client->monitor_rect;
++        OffsetRect(&rect, -rect.left, -rect.top);
++        macdrv_set_view_frame(surface->cocoa_view, cgrect_from_rect(rect));
++        macdrv_remote_client_surface_update(surface);
++        return;
++    }
+     if (!(data = get_win_data(toplevel))) return;
+     macdrv_set_view_frame(surface->cocoa_view, cgrect_from_rect(client->monitor_rect));
+     macdrv_set_view_superview(surface->cocoa_view, toplevel == hwnd ? NULL : data->client_view, data->cocoa_window, NULL, NULL);
+@@ -1116,6 +1126,7 @@
+ 
+     TRACE("%s\n", debugstr_client_surface(client));
+ 
++    macdrv_remote_client_surface_presented(surface);
+     if (!(data = get_win_data(surface->client.hwnd))) return;
+     if (data->client_view != surface->cocoa_view)
+     {
+@@ -1148,6 +1159,8 @@
+     surface = client_surface_create(&macdrv_client_surface_funcs, hwnd, pixel_format, raw);
+     surface->cocoa_view = macdrv_create_view(cgrect_from_rect(surface->client.monitor_rect));
+     macdrv_set_view_hidden(surface->cocoa_view, TRUE);
++    if (macdrv_is_remote_root_child(hwnd)) macdrv_remote_client_surface_init(surface);
++    macdrv_dbg("CreateClientSurface hwnd %p remote %d ctx %p\n", hwnd, macdrv_is_remote_root_child(hwnd), surface->remote_context);
+ 
+     if (surface)
+     {
+@@ -1599,6 +1612,7 @@
+     data->shaped = shaped;
+ 
+     ret = !!data->cocoa_window; /* use default surface if we don't have a window */
++    if (!ret && macdrv_is_remote_root_child(hwnd)) ret = TRUE; /* see surface.c remote surfaces */
+     release_win_data(data);
+ 
+     return ret;
+@@ -1650,7 +1664,12 @@
+     TRACE("win %p/%p new_rects %s style %08x flags %08x surface %p\n", hwnd, data->cocoa_window,
+           debugstr_window_rects(new_rects), new_style, swp_flags, surface);
+ 
+-    if (!data->cocoa_window) goto done;
++    if (!data->cocoa_window)
++    {
++        macdrv_remote_surface_update(hwnd, surface);
++        macdrv_remote_metal_update(hwnd);
++        goto done;
++    }
+ 
+     if (data->on_screen)
+     {
+@@ -2364,6 +2383,24 @@
+     struct macdrv_win_data *data = get_win_data(hwnd);
+     struct dxmt_win_data *compat;
+ 
++    macdrv_dbg("dxmt get_win_data hwnd %p data %p remote %d\n", hwnd, data, macdrv_is_remote_root_child(hwnd));
++
++    /* child of a window in another process: no Cocoa view can be attached here.
++     * Hand DXMT a tagged hwnd instead; dxmt_view_create_metal_view() makes a
++     * standalone CAMetalLayer shared with the owner process (see surface.c). */
++    if (data && macdrv_is_remote_root_child(hwnd))
++    {
++        if (!(compat = calloc(1, sizeof(*compat))))
++        {
++            release_win_data(data);
++            return NULL;
++        }
++        compat->hwnd = hwnd;
++        compat->cocoa_view = compat->client_cocoa_view = (WineContentView *)(((ULONG_PTR)hwnd << 1) | 1);
++        compat->data = data;
++        return (struct macdrv_win_data *)compat;
++    }
++
+     /* the client area view only exists once someone renders to it (GL/Vulkan
+      * create a client surface); create one for DXMT the same way. The surface is
+      * kept alive with the window, and win32u keeps its position up to date. */
+@@ -2411,6 +2448,25 @@
+     void  (*on_main_thread)(void *block);
+ };
+ 
++static void *dxmt_view_create_metal_view(void *view, void *device)
++{
++    if ((ULONG_PTR)view & 1)
++        return macdrv_remote_metal_create((HWND)((ULONG_PTR)view >> 1), device);
++    return macdrv_view_create_metal_view(view, device);
++}
++
++static void *dxmt_view_get_metal_layer(void *metal_view)
++{
++    if ((ULONG_PTR)metal_view & 1) return macdrv_remote_metal_layer(metal_view);
++    return macdrv_view_get_metal_layer(metal_view);
++}
++
++static void dxmt_view_release_metal_view(void *metal_view)
++{
++    if ((ULONG_PTR)metal_view & 1) macdrv_remote_metal_release(metal_view);
++    else macdrv_view_release_metal_view(metal_view);
++}
++
+ __attribute__((visibility("default"))) const struct macdrv_functions_t macdrv_functions =
+ {
+     NULL,
+@@ -2419,9 +2475,9 @@
+     NULL,
+     (void *)macdrv_create_metal_device,
+     (void *)macdrv_release_metal_device,
+-    (void *)macdrv_view_create_metal_view,
+-    (void *)macdrv_view_get_metal_layer,
+-    (void *)macdrv_view_release_metal_view,
++    dxmt_view_create_metal_view,
++    dxmt_view_get_metal_layer,
++    dxmt_view_release_metal_view,
+     NULL,
+ };
+ 
