@@ -24,22 +24,67 @@
 #   0019  winemac.so  [rubinot] minimizar o RubinOT esconde o app (o cliente perde a imagem)
 #   0020  winemac.so  superfície do DXMT acompanha o tamanho da janela; imagem esticada (RubinOT)
 #
-# Uso:  bash engine/build-engine.sh               # compila e instala
-#       bash engine/build-engine.sh --build-only  # só compila (para o vendor.sh)
-#       bash engine/build-engine.sh --restore     # volta para os originais
+# Uso:  bash engine/build-engine.sh                        # compila e instala
+#       bash engine/build-engine.sh --build-only           # só compila (para o vendor.sh)
+#       bash engine/build-engine.sh --rebuild-module ntdll # reusa a árvore e recompila só um módulo
+#       bash engine/build-engine.sh --restore              # volta para os originais
+#
+# Variáveis de ambiente:
+#   ARCH=x86_64|arm64   lado Unix do motor (padrão x86_64, que roda via Rosetta).
+#                       ARCH=arm64 é PREPARAÇÃO: o Wine 11.21 ainda não roda nativo em
+#                       mac arm64 (falta o runtime arm64 do upstream); o script deixa
+#                       pronto o alvo, o build só passa quando o Wine suportar. O lado
+#                       Windows (PE) acompanha: aarch64. Para emular x86_64 PE depois,
+#                       use  PE_ARCHS=aarch64,x86_64 ARCH=arm64. -> PE_ARCHS, PE32_MODULES
+#   MACOSX_DEPLOYMENT_TARGET=10.15   versão mínima do macOS que o motor exige.
+#                       NÃO baixar/alterar sem querer: módulo compilado com o SDK da
+#                       máquina (ex.: 27.2) só carrega em macOS >= 27.2 (dyld recusa).
+#   JOBS, WORK, INSTALL=0|1
 set -euo pipefail
 
 VER=11.21
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+
+# ---------------------------------------------------------------- alvo do build
+ARCH="${ARCH:-x86_64}"
+DEPLOY_TARGET="${MACOSX_DEPLOYMENT_TARGET:-10.15}"
+case "$ARCH" in
+    x86_64)
+        UNIX_ARCH=x86_64; PE_ARCH=x86_64; CC_ARCH=x86_64
+        PE_ARCHS="${PE_ARCHS:-i386,x86_64}"
+        PE_FILE_RE='PE32+.*x86-64'
+        TRIPLE=x86_64-apple-darwin
+        ;;
+    arm64)
+        UNIX_ARCH=aarch64; PE_ARCH=aarch64; CC_ARCH=arm64
+        PE_ARCHS="${PE_ARCHS:-aarch64}"
+        PE_FILE_RE='PE32+.*Aarch64'
+        TRIPLE=                     # build nativo: sem --build/--host
+        echo "!! ARCH=arm64: alvo preparado, mas o Wine $VER ainda não roda nativo em"
+        echo "   macOS arm64 (runtime arm64 do upstream em desenvolvimento)."
+        echo "   O configure/make provavelmente vai falhar; ver README do projeto."
+        ;;
+    *) echo "ARCH inválido: $ARCH (use x86_64 ou arm64)" >&2; exit 1 ;;
+esac
+export MACOSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET"
+
+case ",$PE_ARCHS," in
+    *,i386,*) PE32_ENABLED=1 ;;
+    *)        PE32_ENABLED=0 ;;
+esac
+PE32_ARCH=i386
+PE32_FILE_RE='PE32 executable.*Intel 80386'
+
 MODULES="win32u winemac.drv ntdll"   # partes Unix (.so)
 PE_MODULES="dcomp secur32 mshtml ole32"    # DLLs Windows (x86_64-windows/*.dll)
-PE32_MODULES="ole32"                 # DLLs Windows 32-bit (i386-windows/*.dll)
+[ "$PE32_ENABLED" = 1 ] && PE32_MODULES="ole32"   # DLLs Windows 32-bit (i386-windows/*.dll)
+PE32_MODULES="${PE32_MODULES:-}"     # 0002: RevokeDragDrop (RubinOT 32-bit)
 PE_PROGRAMS="winecfg"                # programas Windows (x86_64-windows/*.exe)
-HERE="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="${WORK:-$HOME/Library/Caches/WinApps/build-$VER}"
-UNIX="$HOME/Library/Application Support/WinApps/motor/engine/Contents/Resources/wine/lib/wine/x86_64-unix"
-[ -d "$UNIX" ] || UNIX="$(ls -d "$HOME/Library/Application Support/WinApps/wine/"*.app/Contents/Resources/wine/lib/wine/x86_64-unix 2>/dev/null | head -1)"
-PE="$UNIX/../x86_64-windows"
-PE32="$UNIX/../i386-windows"
+UNIX="$HOME/Library/Application Support/WinApps/motor/engine/Contents/Resources/wine/lib/wine/$UNIX_ARCH-unix"
+[ -d "$UNIX" ] || UNIX="$(ls -d "$HOME/Library/Application Support/WinApps/wine/"*.app/Contents/Resources/wine/lib/wine/$UNIX_ARCH-unix 2>/dev/null | head -1)"
+PE="$UNIX/../$PE_ARCH-windows"
+PE32="$UNIX/../$PE32_ARCH-windows"
 JOBS="$(sysctl -n hw.ncpu)"
 EXTRA_EXPORTS='_macdrv_functions'   # 0005: tabela usada pelo DXMT (Direct3D -> Metal)
 
@@ -48,6 +93,15 @@ die() { printf '\033[1;31mErro:\033[0m %s\n' "$*" >&2; exit 1; }
 so_name() { local m="${1%.drv}"; echo "$m.so"; }          # winemac.drv -> winemac.so
 rpaths() { otool -l "$1" | awk '/LC_RPATH/{f=1} f&&/ path /{print $2; f=0}'; }
 linked() { otool -L "$1" | tail -n +3 | awk '{print $1}' | sort; }
+minos() { otool -l "$1" 2>/dev/null | awk '/LC_BUILD_VERSION/{f=1} f&&/^ *minos /{print $2; exit}'; }
+# too_new <alvo> <referência>: verdadeiro se <alvo> exige macOS mais novo que <referência>
+too_new() {
+    awk -v a="$1" -v b="$2" 'BEGIN{
+        n=split(a,x,"."); m=split(b,y,".");
+        for(i=1;i<=(n>m?n:m);i++){ if(x[i]+0>y[i]+0) exit 0; if(x[i]+0<y[i]+0) exit 1 }
+        exit 1
+    }'
+}
 
 [ -d "$UNIX" ] || die "motor não encontrado em $UNIX (rode 'winapps setup' antes)"
 
@@ -75,6 +129,11 @@ FT_INC="$(brew --prefix freetype)/include/freetype2"
 export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$(brew --prefix mingw-w64)/bin:$PATH"
 
 # ---------------------------------------------------------------- fontes
+# --rebuild-module reusa a árvore já preparada (não baixa nem reaplica patches)
+REBUILD=0
+if [ "${1:-}" = "--rebuild-module" ]; then REBUILD=1; shift; fi
+
+if [ "$REBUILD" = 0 ]; then
 mkdir -p "$WORK"; cd "$WORK"
 [ -f "wine-$VER.tar.xz" ]    || curl -fL -o "wine-$VER.tar.xz"    "https://dl.winehq.org/wine/source/11.x/wine-$VER.tar.xz"
 [ -f "staging-$VER.tar.gz" ] || curl -fL -o "staging-$VER.tar.gz" "https://github.com/wine-staging/wine-staging/archive/refs/tags/v$VER.tar.gz"
@@ -98,12 +157,11 @@ done
 # ---------------------------------------------------------------- compilação
 # As ferramentas da Apple são só arm64: o clang nativo gera x86_64 e o configure
 # é informado de que o sistema é x86_64 (os auxiliares do build rodam via Rosetta).
-say "Configurando (x86_64)…"
+say "Configurando ($ARCH, macOS >= $DEPLOY_TARGET, PE: $PE_ARCHS)…"
 cd src
-export MACOSX_DEPLOYMENT_TARGET=10.15
-./configure --enable-archs=i386,x86_64 --build=x86_64-apple-darwin --host=x86_64-apple-darwin \
+./configure --enable-archs="$PE_ARCHS" ${TRIPLE:+--build=$TRIPLE} ${TRIPLE:+--host=$TRIPLE} \
     --disable-tests --without-x \
-    CC="clang -arch x86_64" \
+    CC="clang -arch $CC_ARCH" \
     FREETYPE_CFLAGS="-I$FT_INC" FREETYPE_LIBS="-lfreetype" \
     ac_cv_lib_soname_freetype=libfreetype.6.dylib \
     ac_cv_lib_soname_vulkan=libvulkan.1.dylib \
@@ -111,21 +169,38 @@ export MACOSX_DEPLOYMENT_TARGET=10.15
 
 targets=""
 for m in $MODULES; do targets="$targets dlls/$m/$(so_name "$m")"; done
-for m in $PE_MODULES; do targets="$targets dlls/$m/x86_64-windows/$m.dll"; done
-for m in $PE32_MODULES; do targets="$targets dlls/$m/i386-windows/$m.dll"; done
-for m in $PE_PROGRAMS; do targets="$targets programs/$m/x86_64-windows/$m.exe"; done
+for m in $PE_MODULES; do targets="$targets dlls/$m/$PE_ARCH-windows/$m.dll"; done
+for m in $PE32_MODULES; do targets="$targets dlls/$m/$PE32_ARCH-windows/$m.dll"; done
+for m in $PE_PROGRAMS; do targets="$targets programs/$m/$PE_ARCH-windows/$m.exe"; done
 say "Compilando:$targets"
 make -j"$JOBS" $targets >"$WORK/make.log" 2>&1 || die "make falhou (veja $WORK/make.log)"
+else
+    # ------------------------------------------------------------ rebuild de módulo
+    [ $# -gt 0 ] || die "uso: --rebuild-module <módulo>…  (ex.: --rebuild-module ntdll winemac.drv)"
+    [ -d "$WORK/src" ] || die "árvore não encontrada em $WORK/src (rode o build completo antes)"
+    cd "$WORK/src"
+    say "Recompilando ($ARCH, macOS >= $DEPLOY_TARGET): $*"
+    for m in "$@"; do
+        so="$(so_name "$m")"
+        # força recompilar o módulo inteiro: só o .so não basta, os .o continuam com
+        # o deployment target antigo e o make não sabe que a variável de ambiente mudou
+        find "dlls/$m" \( -name '*.c' -o -name '*.h' -o -name '*.idl' \) -exec touch {} +
+        rm -f "dlls/$m/$so" "dlls/$m"/*.o
+    done
+    targets=""
+    for m in "$@"; do targets="$targets dlls/$m/$(so_name "$m")"; done
+    make -j"$JOBS" $targets >"$WORK/make-rebuild.log" 2>&1 || die "make falhou (veja $WORK/make-rebuild.log)"
+fi
 
 # ---------------------------------------------------------------- conferências e instalação
 install_module() {  # install_module <módulo>
-    local m="$1" so new orig rp ref
+    local m="$1" so new orig rp ref want have
     so="$(so_name "$m")"
     new="$WORK/src/dlls/$m/$so"
     orig="$UNIX/$so"; [ -f "$UNIX/$so.orig" ] && orig="$UNIX/$so.orig"
 
     say "Conferindo $so com o original…"
-    lipo -archs "$new" | grep x86_64 >/dev/null || die "$so não é x86_64"
+    lipo -archs "$new" | grep -qw "$CC_ARCH" || die "$so não é $CC_ARCH"
     # mesmo "install name", mesmas referências e mesmos rpaths do original
     install_name_tool -id "$(otool -D "$orig" | tail -1)" "$new" 2>/dev/null
     for ref in $(linked "$new"); do
@@ -135,6 +210,16 @@ install_module() {  # install_module <módulo>
         rpaths "$new" | grep -x "$rp" >/dev/null || install_name_tool -add_rpath "$rp" "$new"
     done
     codesign --force -s - "$new" >/dev/null 2>&1
+
+    # o módulo não pode exigir um macOS mais novo que o original: dyld recusa carregar
+    # um .so cujo minos é maior que a versão do sistema (era o caso ao recompilar com
+    # 'make' na mão sem MACOSX_DEPLOYMENT_TARGET: clang usa a versão do SDK, ex. 27.2)
+    want="$(minos "$orig")"; have="$(minos "$new")"
+    [ -n "$have" ] || die "$so sem LC_BUILD_VERSION (não sei o deployment target)"
+    if [ -n "$want" ] && too_new "$have" "$want"; then
+        die "$so exige macOS $have, mas o original exige $want (export MACOSX_DEPLOYMENT_TARGET=$want)"
+    fi
+    say "  deployment target: $have (original: ${want:-?})"
 
     # mesmas funções exportadas do original; extras só os previstos pelos nossos patches
     diff <(nm -gU "$orig" | awk '{print $3}' | sort) \
@@ -153,8 +238,8 @@ install_module() {  # install_module <módulo>
     say "$so instalado (original em $so.orig)."
 }
 install_pe_module() {  # install_pe_module <módulo>  (DLL "builtin" do Wine)
-    local m="$1" new="$WORK/src/dlls/$1/x86_64-windows/$1.dll"
-    file "$new" | grep -q 'PE32+.*x86-64' || die "$m.dll não é PE x86-64"
+    local m="$1" new="$WORK/src/dlls/$1/$PE_ARCH-windows/$1.dll"
+    file "$new" | grep -q "$PE_FILE_RE" || die "$m.dll não é PE $PE_ARCH"
     [ "$(dd if="$new" bs=1 skip=64 count=16 2>/dev/null)" = "Wine builtin DLL" ] || die "$m.dll não está marcada como builtin"
     [ -f "$PE/$m.dll.orig" ] || cp "$PE/$m.dll" "$PE/$m.dll.orig"
     cp "$new" "$PE/$m.dll.new" && mv -f "$PE/$m.dll.new" "$PE/$m.dll"
@@ -162,14 +247,21 @@ install_pe_module() {  # install_pe_module <módulo>  (DLL "builtin" do Wine)
 }
 
 install_pe32_module() {  # install_pe32_module <módulo>  (DLL "builtin" 32-bit)
-    local m="$1" new="$WORK/src/dlls/$1/i386-windows/$1.dll"
-    file "$new" | grep -q 'PE32 executable.*Intel 80386' || die "$m.dll (32-bit) não é PE i386"
+    local m="$1" new="$WORK/src/dlls/$1/$PE32_ARCH-windows/$1.dll"
+    file "$new" | grep -q "$PE32_FILE_RE" || die "$m.dll (32-bit) não é PE $PE32_ARCH"
     [ "$(dd if="$new" bs=1 skip=64 count=16 2>/dev/null)" = "Wine builtin DLL" ] || die "$m.dll (32-bit) não está marcada como builtin"
-    [ -d "$PE32" ] || die "pasta i386-windows do motor não encontrada"
+    [ -d "$PE32" ] || die "pasta $PE32_ARCH-windows do motor não encontrada"
     [ -f "$PE32/$m.dll.orig" ] || cp "$PE32/$m.dll" "$PE32/$m.dll.orig"
     cp "$new" "$PE32/$m.dll.new" && mv -f "$PE32/$m.dll.new" "$PE32/$m.dll"
     say "$m.dll (32-bit) instalado (original em $m.dll.orig)."
 }
+
+if [ "$REBUILD" = 1 ]; then
+    for m in "$@"; do INSTALL="${INSTALL:-0}" install_module "$m"; done
+    say "Recompilado e conferido (INSTALL=${INSTALL:-0}). vendor.sh copia daqui."
+    exit 0
+fi
+
 if [ "${1:-}" = "--build-only" ]; then
     # só ajusta install name/rpath/assinatura (o vendor.sh copia daqui)
     for m in $MODULES; do INSTALL=0 install_module "$m"; done
@@ -180,7 +272,7 @@ for m in $MODULES; do install_module "$m"; done
 for m in $PE_MODULES; do install_pe_module "$m"; done
 for m in $PE32_MODULES; do install_pe32_module "$m"; done
 for m in $PE_PROGRAMS; do
-    new="$WORK/src/programs/$m/x86_64-windows/$m.exe"
+    new="$WORK/src/programs/$m/$PE_ARCH-windows/$m.exe"
     [ -f "$PE/$m.exe.orig" ] || cp "$PE/$m.exe" "$PE/$m.exe.orig"
     cp "$new" "$PE/$m.exe.new" && mv -f "$PE/$m.exe.new" "$PE/$m.exe" && say "$m.exe instalado"
 done

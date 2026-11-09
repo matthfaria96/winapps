@@ -92,6 +92,22 @@ as the originals.
 `winapps engine-patch` reinstalls the modules from `vendor/`; `bash engine/build-engine.sh
 --restore` goes back to Gcenx's originals.
 
+### Rebuilding one module
+
+`MACOSX_DEPLOYMENT_TARGET=10.15` is part of the contract. `clang` without it stamps the
+module with the SDK's version (`LC_BUILD_VERSION minos 27.2` on a macOS 27 machine) and
+`dyld` then refuses to load it on anything older — the engine fails on every Mac below that.
+The build compares the new module's `minos` with the original's and aborts if it got newer,
+and `package-release.sh` refuses to build a DMG that contains a module needing a newer macOS.
+
+    INSTALL=0 bash engine/build-engine.sh --rebuild-module ntdll winemac.drv  # reuse the tree, check only
+    bash engine/build-engine.sh --rebuild-module winemac.drv                  # INSTALL=1: swap it in
+
+`ARCH=arm64` maps the build to a native Apple Silicon engine (PE side `aarch64`; use
+`PE_ARCHS=aarch64,x86_64` once an x86-64-on-arm64 emulator is in play). Preparation only:
+the Wine runtime for macOS arm64 is still upstream work, and the `winapps` script and the
+app still assume `x86_64-unix`.
+
 ### Why WebView2 needed all of this
 
 WebView2 (Chromium) draws into a child window that belongs to another process

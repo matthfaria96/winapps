@@ -265,9 +265,12 @@ app: ⋯ → Créditos e licenças) e em nomes internos de arquivos/módulos.
 
   msmdsrv cai → PBI "Falha na autenticação" + janela de console SQLDUMPER.EXE ("terminal").
 
-- Recompilar módulo com `make` na árvore oficial: depois rodar o ajuste de install name/rpath/codesign
-
-  (como install_module) ANTES do vendor.sh — senão some o FreeType (sem texto, PBI cai em laço criando
+- Recompilar módulo: `INSTALL=0 bash engine/build-engine.sh --rebuild-module ntdll` (reusa a árvore; já
+  exporta `MACOSX_DEPLOYMENT_TARGET=10.15` e confere minos/exports/rpaths). Nunca `make` na mão: sem a
+  variável o módulo fica com `minos` = versão do SDK da máquina (ex. 27.2) e o dyld recusa carregá-lo em
+  macOS mais antigo — foi assim que o vendor 2.1.0 saiu exigindo 27.2. Depois `vendor.sh` + `winapps
+  engine-patch`. O ajuste de install name/rpath/codesign (como install_module) vem ANTES do vendor.sh —
+  senão some o FreeType (sem texto, PBI cai em laço criando
 
   centenas de conhost; parar com `WINEPREFIX=… "…/bin/WinApps Server" -k`).
 
