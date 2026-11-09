@@ -61,8 +61,8 @@ cat >"$APP/Contents/Info.plist" <<'EOF'
   <key>CFBundleExecutable</key><string>WinApps</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>2.0.0</string>
-  <key>CFBundleVersion</key><string>200</string>
+  <key>CFBundleShortVersionString</key><string>2.1.0</string>
+  <key>CFBundleVersion</key><string>210</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key>
   <array><string>en</string><string>pt-BR</string></array>
