@@ -19,12 +19,13 @@ FILES = {"en": "COMPATIBILITY.md", "pt": "COMPATIBILIDADE.md"}
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 COMPONENT = {"dotnet48": ".NET 4.8", "winrt-metadata": "WinRT", "webview2": "WebView2"}
 # ordem das categorias (pelo nome em inglês, que é a chave)
-ORDER = ["Productivity", "Games", "Utilities", "Not supported", "By technology"]
+ORDER = ["Productivity", "Engineering & CAD", "Design & Media", "Business & Finance", "Development & IT",
+         "Science & Education", "Games", "Utilities", "Not supported", "By technology"]
 
 TEXT = {
     "en": {
         "badge": {"verified": "✅ Verified", "funciona": "🟢 Works",
-                  "parcial": "🟡 Partial", "nao-funciona": "❌ Doesn't work"},
+                  "parcial": "🟡 Partial", "nao-funciona": "❌ Doesn't work", "nao-testado": "⚪ Untested (wanted)"},
         "switch": "**English** · [Português](COMPATIBILIDADE.md)",
         "title": "# WinApps Compatibility",
         "count": "**{ok} programs working**, {ver} verified with WinApps fixes.  ",
@@ -39,7 +40,7 @@ TEXT = {
     },
     "pt": {
         "badge": {"verified": "✅ Verificado", "funciona": "🟢 Funciona",
-                  "parcial": "🟡 Parcial", "nao-funciona": "❌ Não funciona"},
+                  "parcial": "🟡 Parcial", "nao-funciona": "❌ Não funciona", "nao-testado": "⚪ Não testado (procurado)"},
         "switch": "[English](COMPATIBILITY.md) · **Português**",
         "title": "# Compatibilidade do WinApps",
         "count": "**{ok} programas funcionando**, {ver} verificados com correções próprias.  ",

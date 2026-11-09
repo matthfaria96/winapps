@@ -1,5 +1,5 @@
 {
-  "_sobre": "Programs with known compatibility in the WinApps engine. 'match' uses regular expressions (case-insensitive) against: file = file name, product = ProductName/FileDescription/CompanyName of the .exe, content = the file's bytes. Rules are checked in order and the first match wins, so specific rules come before generic ones. Human-readable fields are in ENGLISH: name, summary, why, alt, fixes, category, app_name, and the labels in mac_menu and titlebar_buttons. The optional object 'pt' holds the same keys in Brazilian Portuguese; when the interface language is Portuguese each key there replaces the English one (missing keys fall back to English). status: 'funciona' (works), 'parcial' (partial) or 'nao-funciona' (doesn't work) — identifiers, never translated. 'verified' = tested end to end by WinApps, with the fixes it needs (Verified badge). 'tested' = date of the last test (DD/MM/YYYY). 'fixes' = WinApps fixes the program relies on. 'category' = group in the table. 'kind': 'app' (one program) or 'grupo' (generic rule by technology). 'needs' = components WinApps installs first (winrt-metadata, webview2, dotnet48…). 'app_name' = shortcut name (the program's real product name, normally the same in every language). 'summary' = one-line summary (table); 'why'/'alt' = details when expanded. 'mac_menu' = the program's Mac menus (each item presses one of its keyboard shortcuts); menu '@app' = items in the menu named after the program. 'titlebar_height' = height (points) of the program's own title bar when it is HTML (WebView2) and the engine can't measure it. 'titlebar_buttons' = buttons on the Mac title bar {left, right: [label, action, SF Symbol]}; action = a shortcut ('ctrl+s') or 'click:X,Y' (points from the window's top-left corner; negative X counts from the right) on an item of the hidden title bar; 'click!:X,Y' = a click that opens a window: retried once if none appears. Symbol '@floppy' = floppy disk drawn by WinApps (macOS has none). Menus and title bar buttons are written when the shortcut is created, in the interface language at that moment. COMPATIBILITY.md and COMPATIBILIDADE.md are generated from this file (compat-md.py). User guide: GUIDE.md / GUIA.md.",
+  "_sobre": "Programs with known compatibility in the WinApps engine. 'match' uses regular expressions (case-insensitive) against: file = file name, product = ProductName/FileDescription/CompanyName of the .exe, content = the file's bytes. Rules are checked in order and the first match wins, so specific rules come before generic ones. Human-readable fields are in ENGLISH: name, summary, why, alt, fixes, category, app_name, and the labels in mac_menu and titlebar_buttons. The optional object 'pt' holds the same keys in Brazilian Portuguese; when the interface language is Portuguese each key there replaces the English one (missing keys fall back to English). status: 'funciona' (works), 'parcial' (partial) 'nao-funciona' (doesn't work) or 'nao-testado' (wanted, not tested yet: list of the most requested Windows programs to test). 'outlook' (only for nao-testado) = prediction from the program's technology vs. what the engine supports: likely, uncertain or unlikely — identifiers, never translated. 'verified' = tested end to end by WinApps, with the fixes it needs (Verified badge). 'tested' = date of the last test (DD/MM/YYYY). 'fixes' = WinApps fixes the program relies on. 'category' = group in the table. 'kind': 'app' (one program) or 'grupo' (generic rule by technology). 'needs' = components WinApps installs first (winrt-metadata, webview2, dotnet48…). 'app_name' = shortcut name (the program's real product name, normally the same in every language). 'summary' = one-line summary (table); 'why'/'alt' = details when expanded. 'mac_menu' = the program's Mac menus (each item presses one of its keyboard shortcuts); menu '@app' = items in the menu named after the program. 'titlebar_height' = height (points) of the program's own title bar when it is HTML (WebView2) and the engine can't measure it. 'titlebar_buttons' = buttons on the Mac title bar {left, right: [label, action, SF Symbol]}; action = a shortcut ('ctrl+s') or 'click:X,Y' (points from the window's top-left corner; negative X counts from the right) on an item of the hidden title bar; 'click!:X,Y' = a click that opens a window: retried once if none appears. Symbol '@floppy' = floppy disk drawn by WinApps (macOS has none). Menus and title bar buttons are written when the shortcut is created, in the interface language at that moment. COMPATIBILITY.md and COMPATIBILIDADE.md are generated from this file (compat-md.py). User guide: GUIDE.md / GUIA.md.",
   "rules": [
     {
       "name": "Power BI Desktop",
@@ -561,6 +561,2574 @@
         "why": "Os apps da Adobe dependem de serviços e de aceleração de GPU que o motor não reproduz.",
         "alt": "A Adobe tem versões oficiais para Mac.",
         "category": "Não suportados"
+      }
+    },
+    {
+      "name": "Microsoft Access",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "msaccess",
+        "product": "microsoft (office )?access"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "No Mac version. Ships inside Office Click-to-Run (not installable yet); Access 2010 and older MSI installs are the best bet. Outlook: Ships via Office Click-to-Run, which doesn't install; only old MSI editions have a chance.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Sem versão Mac. Vem no Office Click-to-Run (ainda não instala); Access 2010 ou anterior (MSI) é a melhor aposta. Previsão: Vem pelo Office Click-to-Run, que não instala; só edições MSI antigas têm chance.",
+        "category": "Produtividade"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Microsoft Visio",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "visio",
+        "product": "microsoft visio"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "No Mac version. Same Click-to-Run limitation as Office; Visio 2010 (MSI) worth testing. Outlook: Ships via Office Click-to-Run, which doesn't install; only old MSI editions have a chance.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Sem versão Mac. Mesmo limite Click-to-Run do Office; vale testar o Visio 2010 (MSI). Previsão: Vem pelo Office Click-to-Run, que não instala; só edições MSI antigas têm chance.",
+        "category": "Produtividade"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Microsoft Project",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "winproj|msproject",
+        "product": "microsoft project"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "No Mac version. Click-to-Run limitation; older MSI editions worth testing. Outlook: Ships via Office Click-to-Run, which doesn't install; only old MSI editions have a chance.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Sem versão Mac. Limite Click-to-Run; edições MSI antigas valem teste. Previsão: Vem pelo Office Click-to-Run, que não instala; só edições MSI antigas têm chance.",
+        "category": "Produtividade"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Microsoft Publisher",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "mspub",
+        "product": "microsoft publisher"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "No Mac version (discontinued in 2026). Click-to-Run limitation. Outlook: Ships via Office Click-to-Run, which doesn't install; only old MSI editions have a chance.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Sem versão Mac (descontinuado em 2026). Limite Click-to-Run. Previsão: Vem pelo Office Click-to-Run, que não instala; só edições MSI antigas têm chance.",
+        "category": "Produtividade"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Excel with Power Pivot / VBA add-ins",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "^excel\\.exe$",
+        "product": "^microsoft excel$"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Mac Excel lacks Power Pivot, full Power Query and many COM/VBA add-ins — the most requested Windows-only Excel features. Outlook: Ships via Office Click-to-Run, which doesn't install; only old MSI editions have a chance.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "O Excel do Mac não tem Power Pivot, Power Query completo e muitos suplementos COM/VBA — os recursos do Excel Windows mais pedidos. Previsão: Vem pelo Office Click-to-Run, que não instala; só edições MSI antigas têm chance.",
+        "category": "Produtividade"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Power BI Report Builder",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "reportbuilder",
+        "product": "power bi report builder|report builder"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Paginated report designer, Windows only (.NET). Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Editor de relatórios paginados, só Windows (.NET). Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Produtividade"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "Tabular Editor",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "tabulareditor",
+        "product": "tabular editor"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Companion of Power BI (models). .NET app; v2 is open source. Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Companheiro do Power BI (modelos). App .NET; v2 é open source. Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Produtividade"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "DAX Studio",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "daxstudio",
+        "product": "dax studio"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Power BI/SSAS query tool (WPF/.NET). Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Ferramenta de consultas Power BI/SSAS (WPF/.NET). Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Produtividade"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "Microsoft Power Automate Desktop",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Productivity",
+      "match": {
+        "file": "pad\\.console|powerautomate",
+        "product": "power automate"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Windows-only RPA. Automates Windows UI, so its value in the engine is limited. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "RPA só Windows. Automatiza a interface do Windows, utilidade limitada no motor. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Produtividade"
+      },
+      "needs": [
+        "dotnet48",
+        "webview2"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "SolidWorks",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "sldworks|solidworks",
+        "product": "solidworks"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Most requested CAD with no Mac version. Heavy installer, licensing service and OpenGL/D3D viewport; expect problems. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "CAD mais pedido sem versão Mac. Instalador pesado, serviço de licença e viewport OpenGL/D3D; espere problemas. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Autodesk Revit",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "revit",
+        "product": "autodesk revit"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "BIM standard, Windows only. .NET + D3D11 viewport + Autodesk licensing (AdSSO/WebView2). Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Padrão de BIM, só Windows. .NET + viewport D3D11 + licença Autodesk (AdSSO/WebView2). Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48",
+        "webview2"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Autodesk Inventor",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "^inventor",
+        "product": "autodesk inventor"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Mechanical CAD, Windows only. Same stack as Revit. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "CAD mecânico, só Windows. Mesma base do Revit. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48",
+        "webview2"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "AutoCAD (full Windows edition)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "acad\\.exe|autocad",
+        "product": "autocad"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "AutoCAD for Mac exists but lacks LISP/.NET add-ons, verticals (Civil 3D, Plant 3D) and many tools. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Existe AutoCAD para Mac, mas sem LISP/.NET, verticais (Civil 3D, Plant 3D) e várias ferramentas. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Autodesk Civil 3D",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "civil3d",
+        "product": "civil 3d"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Civil engineering, Windows only (AutoCAD vertical). Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Engenharia civil, só Windows (vertical do AutoCAD). Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Autodesk 3ds Max",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "3dsmax",
+        "product": "3ds max"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "3D modeling/rendering, Windows only. D3D11/Nitrous viewport. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Modelagem/renderização 3D, só Windows. Viewport D3D11/Nitrous. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Autodesk Navisworks",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "navisworks|roamer",
+        "product": "navisworks"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "BIM review, Windows only. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Revisão de BIM, só Windows. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "CATIA",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "catia|cnext",
+        "product": "catia"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Aerospace/automotive CAD, Windows only. Heavy licensing (DSLS); low odds. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "CAD aeroespacial/automotivo, só Windows. Licença pesada (DSLS); chance baixa. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Siemens NX",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "^ugraf\\.exe$",
+        "product": "siemens nx"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "High-end CAD/CAM, Windows/Linux only. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "CAD/CAM de ponta, só Windows/Linux. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Solid Edge",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "^edge\\.exe$|solid ?edge",
+        "product": "solid edge"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Siemens CAD (free Community Edition), Windows only. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "CAD da Siemens (Community Edition grátis), só Windows. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "PTC Creo",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "creo|xtop",
+        "product": "creo"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Parametric CAD, Windows only. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "CAD paramétrico, só Windows. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "ANSYS",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "ansys|runwb2",
+        "product": "ansys"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Simulation (FEA/CFD), Windows/Linux only. Needs heavy compute; native Linux in a VM is an alternative. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Simulação (FEA/CFD), só Windows/Linux. Pesado; Linux em VM é alternativa. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "MATLAB toolboxes / Simulink (Windows-only parts)",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Not supported",
+      "match": {
+        "file": "matlab",
+        "product": "matlab"
+      },
+      "summary": "Not possible in the engine",
+      "why": "MATLAB has a native Mac version; some toolboxes and hardware support packages are Windows only.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "O MATLAB tem versão Mac; alguns toolboxes e pacotes de hardware são só Windows.",
+        "category": "Não suportados"
+      }
+    },
+    {
+      "name": "LabVIEW (full, with drivers)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "labview",
+        "product": "labview"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Mac LabVIEW exists but NI drivers (DAQmx, VISA) are Windows only; hardware access won't work in the engine. Outlook: Depends on Windows hardware drivers (USB/serial/DAQ): the program may open, but the hardware won't work.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Há LabVIEW para Mac, mas os drivers NI (DAQmx, VISA) são só Windows; hardware não funciona no motor. Previsão: Depende de drivers de hardware do Windows (USB/serial/DAQ): pode abrir, mas o hardware não funciona.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Altium Designer",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "dxp\\.exe|altium",
+        "product": "altium"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Most requested PCB design tool, Windows only. .NET + D3D viewport. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Ferramenta de PCB mais pedida, só Windows. .NET + viewport D3D. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "OrCAD / PSpice",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "orcad|pspice|capture\\.exe",
+        "product": "orcad|pspice"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Electronics design/simulation, Windows only. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Projeto/simulação eletrônica, só Windows. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "LTspice",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "ltspice",
+        "product": "ltspice"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Free circuit simulator. Mac version is limited; Windows build is light and a good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Simulador de circuitos grátis. A versão Mac é limitada; a do Windows é leve e boa candidata. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Proteus",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "^isis\\.exe$|proteus",
+        "product": "labcenter|proteus"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Circuit/microcontroller simulation, Windows only (popular in schools). Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Simulação de circuitos/microcontroladores, só Windows (popular em escolas). Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Multisim",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "multisim",
+        "product": "multisim"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "NI circuit simulator, Windows only. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Simulador de circuitos da NI, só Windows. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "STAAD.Pro / Bentley (MicroStation, OpenRoads)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "staad|ustation|microstation|openroads",
+        "product": "bentley|staad|microstation"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Structural/infrastructure, Windows only. Bentley CONNECTION Client login (web). Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Estruturas/infraestrutura, só Windows. Login Bentley CONNECTION Client (web). Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "ETABS / SAP2000 / SAFE (CSI)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "etabs|sap2000|safe\\.exe",
+        "product": "computers and structures|etabs|sap2000"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Structural analysis, Windows only. Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Análise estrutural, só Windows. Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Eberick / QiBuilder / AltoQi",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "eberick|qibuilder|altoqi",
+        "product": "altoqi|eberick"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Brazilian structural/MEP design, Windows only. Hardware key licensing. Outlook: Hardware-key (USB dongle) licensing: the engine can't reach USB drivers.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Projeto estrutural/instalações (Brasil), só Windows. Licença por chave física. Previsão: Licença por chave física (USB): o motor não acessa drivers USB.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "TQS",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "^tqs",
+        "product": "tqs informática|tqs informatica"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Brazilian structural design, Windows only. Hardware key licensing. Outlook: Hardware-key (USB dongle) licensing: the engine can't reach USB drivers.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Projeto estrutural (Brasil), só Windows. Licença por chave física. Previsão: Licença por chave física (USB): o motor não acessa drivers USB.",
+        "category": "Engenharia e CAD"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Tekla Structures",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Engineering & CAD",
+      "match": {
+        "file": "teklastructures",
+        "product": "tekla"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Structural BIM, Windows only. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "BIM estrutural, só Windows. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Engenharia e CAD"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Lumion",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "lumion",
+        "product": "lumion"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Architectural rendering, Windows only. Needs a strong DirectX 11/12 GPU. Outlook: Needs Direct3D 12: only partial support (see the D3D12 rule).",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Renderização arquitetônica, só Windows. Exige GPU forte DirectX 11/12. Previsão: Precisa de Direct3D 12: suporte só parcial (ver regra D3D12).",
+        "category": "Design e mídia"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Enscape (standalone)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "enscape",
+        "product": "enscape"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Real-time rendering (Revit/SketchUp plug-in). Vulkan/D3D. Outlook: Needs Direct3D 12: only partial support (see the D3D12 rule).",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Renderização em tempo real (plug-in Revit/SketchUp). Vulkan/D3D. Previsão: Precisa de Direct3D 12: suporte só parcial (ver regra D3D12).",
+        "category": "Design e mídia"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "V-Ray / Chaos (Windows plug-ins)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "vray",
+        "product": "v-ray|chaos"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Render plug-ins for Windows-only hosts (3ds Max, Revit). Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Plug-ins de render para hosts só Windows (3ds Max, Revit). Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Design e mídia"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Cura / PrusaSlicer / Chitubox (Windows builds)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "chitubox|lychee",
+        "product": "chitubox|lychee"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Most slicers have Mac versions; some resin slicers and printer tools are Windows only. Outlook: Direct3D 11 through DXMT (Metal): works for simple apps; heavy 3D viewports/games untested.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "A maioria dos fatiadores tem Mac; alguns de resina e ferramentas de impressora são só Windows. Previsão: Direct3D 11 via DXMT (Metal): funciona em apps simples; viewport 3D pesado/jogos não testados.",
+        "category": "Utilitários"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Arduino/ESP flashing tools (Windows only)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "flash_download_tool|xloader|stm32cubeprogrammer"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Vendor flashing tools often Windows only; USB/serial access through the engine is limited. Outlook: Depends on Windows hardware drivers (USB/serial/DAQ): the program may open, but the hardware won't work.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Ferramentas de gravação costumam ser só Windows; acesso USB/serial pelo motor é limitado. Previsão: Depende de drivers de hardware do Windows (USB/serial/DAQ): pode abrir, mas o hardware não funciona.",
+        "category": "Desenvolvimento e TI"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "ArcGIS Pro",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "arcgispro",
+        "product": "arcgis pro"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Most requested GIS, Windows only. .NET 8 + DirectX 11 + WebView2. Outlook: Heavy CAD/BIM: big installer, licensing services (FlexLM/Autodesk/DSLS) and a D3D11/OpenGL viewport; nobody runs it well in Wine today.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "SIG mais pedido, só Windows. .NET 8 + DirectX 11 + WebView2. Previsão: CAD/BIM pesado: instalador grande, serviços de licença (FlexLM/Autodesk/DSLS) e viewport D3D11/OpenGL; ninguém roda bem no Wine hoje.",
+        "category": "Ciência e educação"
+      },
+      "needs": [
+        "webview2"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Global Mapper",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "global_mapper|globalmapper",
+        "product": "global mapper"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "GIS, Windows only. Outlook: Direct3D 11 through DXMT (Metal): works for simple apps; heavy 3D viewports/games untested.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "SIG, só Windows. Previsão: Direct3D 11 via DXMT (Metal): funciona em apps simples; viewport 3D pesado/jogos não testados.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Adobe Photoshop (older offline versions, CS6)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "photoshop.*cs|cs6",
+        "product": "photoshop cs"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Creative Cloud doesn't install, but CS6-era offline installers have historically run in Wine. Outlook: CS6-era offline installers run in Wine historically.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "O Creative Cloud não instala, mas instaladores offline da época CS6 historicamente rodam no Wine. Previsão: Instaladores offline da era CS6 rodam no Wine historicamente.",
+        "category": "Design e mídia"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "CorelDRAW (Windows edition)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "coreldrw",
+        "product": "coreldraw"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Mac CorelDRAW exists but lacks Corel PHOTO-PAINT add-ons, macros (VBA) and plug-ins popular with sign makers. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Há CorelDRAW para Mac, mas sem macros (VBA) e plug-ins populares em comunicação visual. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Design e mídia"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Paint.NET",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "paintdotnet|paint\\.net",
+        "product": "paint\\.net"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Popular free editor, Windows only (.NET 8+ self-contained). Outlook: Direct3D 11 through DXMT (Metal): works for simple apps; heavy 3D viewports/games untested.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Editor grátis popular, só Windows (.NET 8+ embutido). Previsão: Direct3D 11 via DXMT (Metal): funciona em apps simples; viewport 3D pesado/jogos não testados.",
+        "category": "Design e mídia"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Sony Vegas Pro",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "vegas\\d*",
+        "product": "vegas pro"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Video editor, Windows only. Media Foundation/codecs are weak in the engine. Outlook: Video/codecs via Media Foundation, weak in the engine.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Editor de vídeo, só Windows. Media Foundation/codecs são fracos no motor. Previsão: Vídeo/codecs via Media Foundation, fraco no motor.",
+        "category": "Design e mídia"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Wondershare Filmora (Windows-only effects)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "filmora",
+        "product": "filmora"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Has a Mac version; listed for Windows-only plug-ins. Outlook: Video/codecs via Media Foundation, weak in the engine.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Tem versão Mac; listado por plug-ins só Windows. Previsão: Vídeo/codecs via Media Foundation, fraco no motor.",
+        "category": "Design e mídia"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Clip Studio Paint (Windows plug-ins)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "clipstudio",
+        "product": "clip studio"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Has a Mac version. Outlook: Has a native Mac version — use it; the Windows build is only for Windows-only extras.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Tem versão Mac. Previsão: Tem versão Mac nativa — use-a; a do Windows só p/ extras exclusivos.",
+        "category": "Design e mídia"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "MediBang / SAI Paint Tool",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "sai(2)?\\.exe|painttoolsai",
+        "product": "paint tool sai"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "PaintTool SAI is Windows only and lightweight — good candidate (tablet pressure needs testing). Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "O PaintTool SAI é só Windows e leve — bom candidato (pressão da mesa digitalizadora a testar). Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Design e mídia"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "FL Studio (Windows-only VSTs)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "fl64|fl studio",
+        "product": "fl studio"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "FL Studio has a Mac version; many older VST plug-ins are Windows only. Outlook: Has a native Mac version — use it; the Windows build is only for Windows-only extras.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "O FL Studio tem versão Mac; muitos VSTs antigos são só Windows. Previsão: Tem versão Mac nativa — use-a; a do Windows só p/ extras exclusivos.",
+        "category": "Design e mídia"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Cakewalk / Sonar",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "cakewalk",
+        "product": "cakewalk"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "DAW, Windows only. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "DAW, só Windows. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Design e mídia"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "foobar2000 (Windows plug-ins)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "foobar2000",
+        "product": "foobar2000"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Mac version exists without plug-in support; Windows build is light — good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Há versão Mac sem plug-ins; a do Windows é leve — boa candidata. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Utilitários"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "MusicBee",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "musicbee",
+        "product": "musicbee"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Music player, Windows only (.NET). Good candidate. Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Player de música, só Windows (.NET). Bom candidato. Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Utilitários"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "IrfanView",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "i_view",
+        "product": "irfanview"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Image viewer, Windows only, very light. Good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Visualizador de imagens, só Windows, muito leve. Bom candidato. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Utilitários"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "XnView Classic",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "xnview",
+        "product": "xnview"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Classic is Windows only (XnView MP has Mac). Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "O Classic é só Windows (o XnView MP tem Mac). Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Utilitários"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "ShareX",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "sharex",
+        "product": "sharex"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Screenshot tool, Windows only. Screen capture inside the engine only sees Windows windows. Outlook: System tool: opens, but only sees the engine, not the Mac.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Captura de tela, só Windows. No motor só enxerga janelas do Windows. Previsão: Ferramenta de sistema: abre, mas só enxerga o motor, não o Mac.",
+        "category": "Utilitários"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Greenshot",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "greenshot",
+        "product": "greenshot"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Has a paid Mac version. Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Tem versão Mac paga. Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Utilitários"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "MPC-HC / PotPlayer",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "mpc-hc|potplayer",
+        "product": "media player classic|potplayer"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Media players, Windows only (VLC/IINA on Mac). Outlook: Video/codecs via Media Foundation, weak in the engine.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Players de mídia, só Windows (VLC/IINA no Mac). Previsão: Vídeo/codecs via Media Foundation, fraco no motor.",
+        "category": "Utilitários"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "HandBrake / Avidemux (Windows builds)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "avidemux",
+        "product": "avidemux"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Both have Mac versions. Outlook: Has a native Mac version — use it; the Windows build is only for Windows-only extras.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Ambos têm versão Mac. Previsão: Tem versão Mac nativa — use-a; a do Windows só p/ extras exclusivos.",
+        "category": "Utilitários"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "OBS plug-ins (Windows only)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Design & Media",
+      "match": {
+        "file": "obs64",
+        "product": "obs studio"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "OBS has a Mac version; some plug-ins are Windows only. Outlook: Has a native Mac version — use it; the Windows build is only for Windows-only extras.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "O OBS tem versão Mac; alguns plug-ins são só Windows. Previsão: Tem versão Mac nativa — use-a; a do Windows só p/ extras exclusivos.",
+        "category": "Design e mídia"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Kindle for PC / Adobe Digital Editions (old)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "^kindle|digitaleditions",
+        "product": "kindle|digital editions"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Popular in Wine for e-book tools. Mac versions exist. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Populares no Wine para e-books. Há versões Mac. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Utilitários"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "IRPF — Receita Federal (Windows build)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "irpf",
+        "product": "irpf|receita federal"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Has a Java multiplatform version; the Windows .exe is Java too. Outlook: Java program: runs on a bundled Windows JRE, which Wine handles well.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Tem versão Java multiplataforma; o .exe do Windows também é Java. Previsão: Programa Java: roda num JRE Windows embutido, que o Wine aguenta bem.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Receitanet / SPED (ECD, ECF, EFD, Fiscal)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "receitanet|sped",
+        "product": "receitanet|\\bsped\\b"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Brazilian tax validators. Many are Java; some installers Windows only. Outlook: Java program: runs on a bundled Windows JRE, which Wine handles well.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Validadores fiscais. Muitos são Java; alguns instaladores só Windows. Previsão: Programa Java: roda num JRE Windows embutido, que o Wine aguenta bem.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "eSocial / GFIP / SEFIP / Conectividade Social",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "sefip|gfip|conectividade",
+        "product": "sefip|caixa"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Brazilian payroll/government programs, Windows only. Need Windows certificate drivers (A3 token) that the engine can't reach. Outlook: Depends on Windows hardware drivers (USB/serial/DAQ): the program may open, but the hardware won't work.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Programas de folha/governo, só Windows. Certificado A3 (token) não é acessível pelo motor. Previsão: Depende de drivers de hardware do Windows (USB/serial/DAQ): pode abrir, mas o hardware não funciona.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Certificado digital A3 / token (SafeNet, Watchdata)",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Not supported",
+      "match": {
+        "file": "safenet|watchdata|gdburti|epass",
+        "product": "safenet|watchdata"
+      },
+      "summary": "Not possible in the engine",
+      "why": "USB smart-card drivers are kernel/PCSC drivers; the engine can't load them. Use the Mac drivers + PC/SC.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Drivers de token USB são do sistema; o motor não carrega. Use os drivers Mac + PC/SC.",
+        "category": "Não suportados"
+      }
+    },
+    {
+      "name": "Módulos de segurança de banco (Warsaw/GBPlugin)",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Not supported",
+      "match": {
+        "file": "warsaw|gbplugin|topaz",
+        "product": "warsaw|gbplugin|topaz|diebold"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Bank security modules are system services; use the Mac version of the bank module.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Módulos de segurança bancária são serviços do sistema; use a versão Mac do banco.",
+        "category": "Não suportados"
+      }
+    },
+    {
+      "name": "Domínio Sistemas (Thomson Reuters)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "^dominio|dominiocontabil",
+        "product": "domínio sistemas|dominio sistemas"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Accounting suite widely used by Brazilian accountants, Windows only (often via RDP). Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Suíte contábil muito usada por contadores, só Windows (muitas vezes via RDP). Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Alterdata / Questor / Fortes / Contmatic",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "alterdata|questor|fortes|contmatic",
+        "product": "alterdata|questor|fortes tecnologia|contmatic"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Brazilian accounting/ERP, Windows only (Delphi + Firebird/SQL Server). Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Contábil/ERP brasileiro, só Windows (Delphi + Firebird/SQL Server). Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "TOTVS Protheus SmartClient / RM",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "smartclient|totvs",
+        "product": "totvs|protheus"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Brazilian ERP client. SmartClient has HTML/Mac options; RM is Windows only. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Cliente de ERP. SmartClient tem opção HTML/Mac; RM é só Windows. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "SAP GUI for Windows",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "saplogon|sapgui",
+        "product": "sap gui|saplogon"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "SAP GUI for Java exists for Mac but lacks features (scripting, some transactions). Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Há SAP GUI for Java no Mac, mas sem alguns recursos (scripting, transações). Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "QuickBooks Desktop (Windows)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "qbw32|quickbooks",
+        "product": "quickbooks"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Mac edition is different and being retired; Windows Desktop has more features. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "A edição Mac é diferente e está sendo descontinuada; a do Windows tem mais recursos. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Negócios e finanças"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Sage 50 / Sage 300",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "^sage|peachtree",
+        "product": "^sage\\b"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Accounting, Windows only. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Contabilidade, só Windows. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Negócios e finanças"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Tally Prime",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "^tally",
+        "product": "tally ?prime|tally solutions"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Accounting widely used in India, Windows only. Light — good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Contabilidade muito usada na Índia, só Windows. Leve — bom candidato. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "MetaTrader 4 / 5",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "metatrader|mt[45]setup",
+        "product": "metatrader|metaquotes"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Most requested trading platform; MetaQuotes itself ships a Wine-based Mac build — very good candidate. Outlook: MetaQuotes' own Mac build is Wine-based.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Plataforma de trading mais pedida; a própria MetaQuotes distribui versão Mac baseada em Wine — ótimo candidato. Previsão: A versão Mac oficial da MetaQuotes é baseada em Wine.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Profit (Nelogica) / Tryd / ProfitChart",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "^profit|profitchart|tryd|nelogica",
+        "product": "nelogica|profitchart|tryd"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Brazilian trading platforms (B3), Windows only. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Plataformas de trading da B3, só Windows. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "NinjaTrader 8",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "ninjatrader",
+        "product": "ninjatrader"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Trading, Windows only (.NET/WPF). Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Trading, só Windows (.NET/WPF). Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Negócios e finanças"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "Amibroker",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "broker\\.exe|amibroker",
+        "product": "amibroker"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Trading analysis, Windows only. Light. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Análise técnica, só Windows. Leve. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Bloomberg Terminal",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "bbcomm|wintrv|bloomberg",
+        "product": "bloomberg"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "Windows only desktop; Bloomberg Anywhere web exists. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "Desktop só Windows; há Bloomberg Anywhere na web. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Negócios e finanças"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Tableau Prep / Alteryx Designer",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Business & Finance",
+      "match": {
+        "file": "alteryx",
+        "product": "alteryx"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Alteryx Designer is Windows only (Tableau has Mac). Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "O Alteryx Designer é só Windows (o Tableau tem Mac). Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Negócios e finanças"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Microsoft SQL Server Management Studio (SSMS)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "ssms",
+        "product": "sql server management studio"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Very requested, Windows only. VS Shell + .NET 4.8 — moderate odds. Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Muito pedido, só Windows. VS Shell + .NET 4.8 — chance moderada. Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Desenvolvimento e TI"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Visual Studio (full IDE)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "devenv|vs_(community|professional|enterprise)|vs_installer",
+        "product": "^microsoft visual studio( (community|professional|enterprise|installer))?( \\d+)?$"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "VS for Mac was discontinued. The full IDE/installer is heavy; odds are low. Outlook: Very heavy installer (VS Installer, many services); low odds.",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "O VS para Mac foi descontinuado. A IDE completa/instalador é pesada; chance baixa. Previsão: Instalador muito pesado (VS Installer, vários serviços); chance baixa.",
+        "category": "Desenvolvimento e TI"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "unlikely"
+    },
+    {
+      "name": "HeidiSQL",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "heidisql",
+        "product": "heidisql"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Popular SQL client, Windows only (Delphi). Known to run in Wine — good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Cliente SQL popular, só Windows (Delphi). Conhecido por rodar no Wine — bom candidato. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Desenvolvimento e TI"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Notepad++ plug-ins / WinMerge",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "winmerge",
+        "product": "winmerge"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "WinMerge is Windows only and light — good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "O WinMerge é só Windows e leve — bom candidato. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Desenvolvimento e TI"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "WinSCP",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "winscp",
+        "product": "winscp"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Very requested SFTP client, Windows only. Light — good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Cliente SFTP muito pedido, só Windows. Leve — bom candidato. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Desenvolvimento e TI"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "MobaXterm",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "mobaxterm",
+        "product": "mobaxterm"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "SSH/X11 terminal, Windows only. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Terminal SSH/X11, só Windows. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Desenvolvimento e TI"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "mRemoteNG / RDCMan",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "mremoteng|rdcman",
+        "product": "mremoteng|remote desktop connection manager"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Connection managers, Windows only (.NET). Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Gerenciadores de conexão, só Windows (.NET). Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Desenvolvimento e TI"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "Fiddler Classic",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "fiddler",
+        "product": "fiddler"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Web debugging proxy, Windows only (.NET). Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Proxy de depuração web, só Windows (.NET). Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Desenvolvimento e TI"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "Wireshark / Npcap tools (Windows only parts)",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Not supported",
+      "match": {
+        "file": "npcap",
+        "product": "npcap"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Npcap is a kernel driver; use Wireshark for Mac.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "O Npcap é driver do sistema; use o Wireshark para Mac.",
+        "category": "Não suportados"
+      }
+    },
+    {
+      "name": "x64dbg / dnSpy / ILSpy",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "x64dbg|x32dbg|dnspy|ilspy",
+        "product": "x64dbg|dnspy|ilspy"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Windows debuggers/decompilers. dnSpy/ILSpy (.NET) are good candidates. Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Depuradores/descompiladores Windows. dnSpy/ILSpy (.NET) são bons candidatos. Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Desenvolvimento e TI"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "likely"
+    },
+    {
+      "name": "Resource Hacker / Process Explorer / Sysinternals",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Development & IT",
+      "match": {
+        "file": "reshacker|procexp|autoruns|procmon",
+        "product": "sysinternals|resource hacker"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Windows system tools; inside the engine they only see the engine's processes. Outlook: System tool: opens, but only sees the engine, not the Mac.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Ferramentas do sistema Windows; no motor só enxergam os processos do motor. Previsão: Ferramenta de sistema: abre, mas só enxerga o motor, não o Mac.",
+        "category": "Desenvolvimento e TI"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "AutoHotkey",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "autohotkey",
+        "product": "autohotkey"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Very requested, Windows only. Works only inside the engine's windows, not on macOS apps. Outlook: System tool: opens, but only sees the engine, not the Mac.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Muito pedido, só Windows. Só age nas janelas do motor, não nos apps do macOS. Previsão: Ferramenta de sistema: abre, mas só enxerga o motor, não o Mac.",
+        "category": "Utilitários"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Rufus / balenaEtcher (Windows)",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Not supported",
+      "match": {
+        "file": "rufus",
+        "product": "rufus"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Needs raw disk access through Windows drivers; use balenaEtcher for Mac.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Precisa acesso direto ao disco via drivers Windows; use o balenaEtcher para Mac.",
+        "category": "Não suportados"
+      }
+    },
+    {
+      "name": "CPU-Z / HWiNFO / CrystalDiskInfo",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Not supported",
+      "match": {
+        "file": "cpu-z|cpuz|hwinfo|crystaldisk",
+        "product": "cpuid|hwinfo|crystaldisk"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Hardware monitors use kernel drivers; they can't read the Mac's hardware.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Monitores de hardware usam drivers do sistema; não leem o hardware do Mac.",
+        "category": "Não suportados"
+      }
+    },
+    {
+      "name": "WinRAR",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "winrar|rar\\.exe",
+        "product": "winrar"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Popular archiver; has a command-line Mac version only. Light — good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Compactador popular; no Mac só em linha de comando. Leve — bom candidato. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Utilitários"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Total Commander",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "totalcmd",
+        "product": "total commander"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "File manager, Windows only. Known to run in Wine. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Gerenciador de arquivos, só Windows. Conhecido por rodar no Wine. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Utilitários"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Duplicate Cleaner / WizTree / TreeSize",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "wiztree|treesize|duplicatecleaner",
+        "product": "wiztree|treesize"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Disk tools; WizTree reads NTFS directly (won't work); TreeSize may. Outlook: System tool: opens, but only sees the engine, not the Mac.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Ferramentas de disco; o WizTree lê NTFS direto (não funciona); o TreeSize talvez. Previsão: Ferramenta de sistema: abre, mas só enxerga o motor, não o Mac.",
+        "category": "Utilitários"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Calibre / Sigil (Windows-only plug-ins)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "sigil",
+        "product": "sigil"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Both have Mac versions. Outlook: Has a native Mac version — use it; the Windows build is only for Windows-only extras.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Ambos têm versão Mac. Previsão: Tem versão Mac nativa — use-a; a do Windows só p/ extras exclusivos.",
+        "category": "Utilitários"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Ditto / ClipboardFusion",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Utilities",
+      "match": {
+        "file": "^ditto\\.exe$|clipboardfusion",
+        "product": "ditto|clipboardfusion"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Clipboard managers, Windows only; only see the engine's clipboard bridge. Outlook: System tool: opens, but only sees the engine, not the Mac.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Gerenciadores de área de transferência, só Windows. Previsão: Ferramenta de sistema: abre, mas só enxerga o motor, não o Mac.",
+        "category": "Utilitários"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "SPSS (Windows edition)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "spss",
+        "product": "spss"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Has a Mac version; listed for Windows-only extensions. Outlook: Java program: runs on a bundled Windows JRE, which Wine handles well.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Tem versão Mac; listado por extensões só Windows. Previsão: Programa Java: roda num JRE Windows embutido, que o Wine aguenta bem.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Stata / Minitab",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "minitab",
+        "product": "minitab"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Minitab desktop is Windows only (web app exists); Stata has Mac. Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "O Minitab desktop é só Windows (há versão web); o Stata tem Mac. Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Ciência e educação"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "EViews",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "eviews",
+        "product": "eviews"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Econometrics, Windows only. Light — good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Econometria, só Windows. Leve — bom candidato. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Origin / OriginPro",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "^origin(64)?\\.exe$|originpro",
+        "product": "originlab"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Scientific graphing, Windows only. Outlook: Mixed stack (.NET + COM + services/installer) — partially covered by the engine's fixes; hard to predict.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Gráficos científicos, só Windows. Previsão: Base mista (.NET + COM + serviços/instalador) — coberta em parte pelas correções do motor; difícil prever.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "GraphPad Prism (Windows features)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "^prism\\.exe$",
+        "product": "graphpad"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Has a Mac version. Outlook: Has a native Mac version — use it; the Windows build is only for Windows-only extras.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Tem versão Mac. Previsão: Tem versão Mac nativa — use-a; a do Windows só p/ extras exclusivos.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "ChemDraw / ChemSketch",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "chemsk|acdlabs",
+        "product": "acd/chemsketch|chemsketch"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "ACD/ChemSketch is Windows only (ChemDraw has Mac). Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "O ACD/ChemSketch é só Windows (o ChemDraw tem Mac). Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Geogebra Classic 5 / Winplot",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "winplot",
+        "product": "winplot"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Winplot is Windows only and tiny — good candidate. Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "O Winplot é só Windows e minúsculo — bom candidato. Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Mathcad Prime",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "mathcad",
+        "product": "mathcad"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Engineering calculations, Windows only (.NET/WPF). Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Cálculos de engenharia, só Windows (.NET/WPF). Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Ciência e educação"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Maple / Mathematica (Windows add-ons)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "maplew",
+        "product": "maple"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Both have Mac versions. Outlook: Has a native Mac version — use it; the Windows build is only for Windows-only extras.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Ambos têm versão Mac. Previsão: Tem versão Mac nativa — use-a; a do Windows só p/ extras exclusivos.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "NVivo / ATLAS.ti (Windows edition)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "nvivo",
+        "product": "nvivo"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Mac editions lack features of the Windows ones. Outlook: .NET 4.8 WinForms/WPF: the engine runs real .NET 4.8 (proven by Power BI).",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "As edições Mac têm menos recursos que as do Windows. Previsão: .NET 4.8 WinForms/WPF: o motor roda o .NET 4.8 real (provado pelo Power BI).",
+        "category": "Ciência e educação"
+      },
+      "needs": [
+        "dotnet48"
+      ],
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Logger Pro / Tracker / Modellus",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Science & Education",
+      "match": {
+        "file": "modellus|loggerpro",
+        "product": "modellus|logger pro"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "School physics tools; some Windows only. Outlook: Java program: runs on a bundled Windows JRE, which Wine handles well.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "Ferramentas de física escolar; algumas só Windows. Previsão: Programa Java: roda num JRE Windows embutido, que o Wine aguenta bem.",
+        "category": "Ciência e educação"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Safe Exam Browser / Respondus LockDown Browser",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Not supported",
+      "match": {
+        "file": "lockdownbrowser|safeexambrowser",
+        "product": "lockdown browser|safe exam"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Exam lockdown browsers refuse virtual/compat environments by design; use their Mac versions.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Navegadores de prova recusam ambientes de compatibilidade por projeto; use as versões Mac.",
+        "category": "Não suportados"
+      }
+    },
+    {
+      "name": "Steam (Windows-only games)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "steamsetup|^steam\\.exe$",
+        "product": "^steam$|valve"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Steam's Windows client runs in Wine with CEF/WebView issues; most requested route for Windows-only games. Outlook: Launcher with an embedded Chromium (CEF) UI: the engine's cross-process rendering (made for WebView2) should help, but CEF isn't proven yet.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "O cliente Windows da Steam roda no Wine com problemas de CEF; rota mais pedida para jogos só Windows. Previsão: Launcher com Chromium embutido (CEF): a renderização entre processos do motor (feita p/ WebView2) deve ajudar, mas CEF ainda não foi provado.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Epic Games Launcher",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "epicinstaller|epicgameslauncher",
+        "product": "epic games"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Launcher with CEF UI; games with EAC/kernel anti-cheat won't run. Outlook: Launcher with an embedded Chromium (CEF) UI: the engine's cross-process rendering (made for WebView2) should help, but CEF isn't proven yet.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Launcher com interface CEF; jogos com anti-cheat de kernel não rodam. Previsão: Launcher com Chromium embutido (CEF): a renderização entre processos do motor (feita p/ WebView2) deve ajudar, mas CEF ainda não foi provado.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Battle.net (Diablo, Overwatch, WoW)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "battle\\.net",
+        "product": "battle\\.net|blizzard"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "WoW has a Mac version; Diablo IV/Overwatch 2 are Windows only (D3D12). Outlook: Launcher with an embedded Chromium (CEF) UI: the engine's cross-process rendering (made for WebView2) should help, but CEF isn't proven yet.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "WoW tem Mac; Diablo IV/Overwatch 2 são só Windows (D3D12). Previsão: Launcher com Chromium embutido (CEF): a renderização entre processos do motor (feita p/ WebView2) deve ajudar, mas CEF ainda não foi provado.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "EA app (The Sims 4, EA FC)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "eaapp|eadesktop",
+        "product": "^ea app|electronic arts"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "The Sims 4 has Mac; EA FC uses kernel anti-cheat (no). Outlook: Launcher with an embedded Chromium (CEF) UI: the engine's cross-process rendering (made for WebView2) should help, but CEF isn't proven yet.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "The Sims 4 tem Mac; o EA FC usa anti-cheat de kernel (não). Previsão: Launcher com Chromium embutido (CEF): a renderização entre processos do motor (feita p/ WebView2) deve ajudar, mas CEF ainda não foi provado.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Ubisoft Connect",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "ubisoftconnect|upc\\.exe",
+        "product": "ubisoft"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Launcher; many games D3D12. Outlook: Launcher with an embedded Chromium (CEF) UI: the engine's cross-process rendering (made for WebView2) should help, but CEF isn't proven yet.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Launcher; muitos jogos D3D12. Previsão: Launcher com Chromium embutido (CEF): a renderização entre processos do motor (feita p/ WebView2) deve ajudar, mas CEF ainda não foi provado.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "GOG Galaxy (Windows games)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "goggalaxy",
+        "product": "gog galaxy"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "DRM-free GOG games are the best candidates for the engine. Outlook: Launcher with an embedded Chromium (CEF) UI: the engine's cross-process rendering (made for WebView2) should help, but CEF isn't proven yet.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Jogos da GOG sem DRM são os melhores candidatos para o motor. Previsão: Launcher com Chromium embutido (CEF): a renderização entre processos do motor (feita p/ WebView2) deve ajudar, mas CEF ainda não foi provado.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Riot Client (League of Legends)",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "riotclient|leagueclient",
+        "product": "riot games"
+      },
+      "summary": "Not possible in the engine",
+      "why": "League has a Mac client; Valorant uses Vanguard (kernel anti-cheat).",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "O LoL tem cliente Mac; o Valorant usa Vanguard (anti-cheat de kernel).",
+        "category": "Jogos"
+      }
+    },
+    {
+      "name": "Valorant",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "valorant",
+        "product": "valorant"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Vanguard kernel anti-cheat — impossible outside real Windows.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Anti-cheat de kernel Vanguard — impossível fora do Windows real.",
+        "category": "Jogos"
+      }
+    },
+    {
+      "name": "Fortnite",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "fortnite",
+        "product": "fortnite"
+      },
+      "summary": "Not possible in the engine",
+      "why": "EasyAntiCheat/BattlEye kernel mode; no Mac version since 2020.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "EasyAntiCheat/BattlEye em modo kernel; sem versão Mac desde 2020.",
+        "category": "Jogos"
+      }
+    },
+    {
+      "name": "Counter-Strike 2",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "cs2",
+        "product": "counter-strike"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Mac version dropped; VAC is user-mode, but CS2 is Vulkan/D3D11 heavy. Outlook: Direct3D 11 through DXMT (Metal): works for simple apps; heavy 3D viewports/games untested.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Versão Mac removida; o VAC é de usuário, mas o CS2 é pesado (Vulkan/D3D11). Previsão: Direct3D 11 via DXMT (Metal): funciona em apps simples; viewport 3D pesado/jogos não testados.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "GTA V / FiveM / Red Dead Redemption 2",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "gta5|playgtav|fivem|rdr2",
+        "product": "rockstar|grand theft auto|fivem"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "GTA Online now uses BattlEye (blocks); story mode/RDR2 possible with D3D12 support. Outlook: Needs Direct3D 12: only partial support (see the D3D12 rule).",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "O GTA Online usa BattlEye (bloqueia); modo história/RDR2 possíveis com D3D12. Previsão: Precisa de Direct3D 12: suporte só parcial (ver regra D3D12).",
+        "category": "Jogos"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "Roblox (Windows)",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "robloxplayer",
+        "product": "roblox"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Roblox has a Mac client; the Windows client uses Hyperion anti-tamper that blocks Wine.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "O Roblox tem cliente Mac; o do Windows usa Hyperion, que bloqueia o Wine.",
+        "category": "Jogos"
+      }
+    },
+    {
+      "name": "Minecraft Bedrock (Windows)",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "minecraft\\.windows",
+        "product": "minecraft for windows|minecraft bedrock"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Microsoft Store/GDK package (MSIX); Java Edition has Mac.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Pacote da Microsoft Store (MSIX); a Java Edition tem Mac.",
+        "category": "Jogos"
+      }
+    },
+    {
+      "name": "Call of Duty / Warzone",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "^cod(\\d+|hq)?\\.exe$|modernwarfare|blackops",
+        "product": "call of duty"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Ricochet kernel anti-cheat.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Anti-cheat de kernel Ricochet.",
+        "category": "Jogos"
+      }
+    },
+    {
+      "name": "Apex Legends / PUBG / Rainbow Six Siege",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "r5apex|tslgame|rainbowsix",
+        "product": "apex legends|pubg|rainbow six"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Kernel anti-cheat (EAC/BattlEye).",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Anti-cheat de kernel (EAC/BattlEye).",
+        "category": "Jogos"
+      }
+    },
+    {
+      "name": "Genshin Impact / Honkai Star Rail",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "genshinimpact|starrail",
+        "product": "hoyoverse|mihoyo"
+      },
+      "summary": "Not possible in the engine",
+      "why": "mhyprot kernel anti-cheat (Genshin has iPad/Mac Catalyst via App Store on Apple silicon).",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Anti-cheat de kernel mhyprot (no Mac Apple silicon há versão da App Store).",
+        "category": "Jogos"
+      }
+    },
+    {
+      "name": "Elden Ring / Dark Souls",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "eldenring|darksoulsiii",
+        "product": "elden ring|fromsoftware"
+      },
+      "summary": "Unlikely to work — not tested",
+      "why": "EAC is disabled offline; D3D12 needed. Outlook: Needs Direct3D 12: only partial support (see the D3D12 rule).",
+      "alt": "",
+      "pt": {
+        "summary": "Improvável — não testado",
+        "why": "EAC desligado no offline; precisa D3D12. Previsão: Precisa de Direct3D 12: suporte só parcial (ver regra D3D12).",
+        "category": "Jogos"
+      },
+      "outlook": "unlikely"
+    },
+    {
+      "name": "The Witcher 3 / Cyberpunk 2077",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "witcher3|cyberpunk2077",
+        "product": "cd projekt"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Cyberpunk has a Mac version; Witcher 3 D3D11 build is a candidate. Outlook: Direct3D 11 through DXMT (Metal): works for simple apps; heavy 3D viewports/games untested.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Cyberpunk tem Mac; o Witcher 3 (D3D11) é candidato. Previsão: Direct3D 11 via DXMT (Metal): funciona em apps simples; viewport 3D pesado/jogos não testados.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Tibia (official client) / other MMOs",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "^tibia",
+        "product": "cipsoft"
+      },
+      "summary": "Likely to work — not tested",
+      "why": "Tibia has a Linux/Mac-less client; very close to the RubinOT case. Outlook: Direct3D 11 through DXMT (Metal): works for simple apps; heavy 3D viewports/games untested.",
+      "alt": "",
+      "pt": {
+        "summary": "Provável que funcione — não testado",
+        "why": "O cliente do Tibia é parecido com o caso RubinOT. Previsão: Direct3D 11 via DXMT (Metal): funciona em apps simples; viewport 3D pesado/jogos não testados.",
+        "category": "Jogos"
+      },
+      "outlook": "likely"
+    },
+    {
+      "name": "Ragnarök Online / MU Online / Lineage II private servers",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "ragexe|^l2\\.exe$",
+        "product": "gravity co|webzen|ncsoft"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Old D3D7–9 MMOs; private servers often add GameGuard/kernel anti-cheat (blocks). Outlook: Plain Win32/Delphi/MFC program: same class as Notepad++, 7-Zip and PuTTY, which work.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "MMOs antigos D3D7–9; servidores privados costumam ter GameGuard (bloqueia). Previsão: Programa Win32/Delphi/MFC simples: mesma classe de Notepad++, 7-Zip e PuTTY, que funcionam.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Age of Empires II DE / IV",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "aoe2de|relicardinal",
+        "product": "age of empires"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "D3D11; multiplayer anti-cheat is user-mode. Outlook: Direct3D 11 through DXMT (Metal): works for simple apps; heavy 3D viewports/games untested.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "D3D11; anti-cheat do multiplayer é de usuário. Previsão: Direct3D 11 via DXMT (Metal): funciona em apps simples; viewport 3D pesado/jogos não testados.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Euro Truck Simulator 2 (Windows build)",
+      "status": "nao-testado",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "eurotrucks2",
+        "product": "scs software"
+      },
+      "summary": "Uncertain — not tested",
+      "why": "Has a Mac version. Outlook: Has a native Mac version — use it; the Windows build is only for Windows-only extras.",
+      "alt": "",
+      "pt": {
+        "summary": "Incerto — não testado",
+        "why": "Tem versão Mac. Previsão: Tem versão Mac nativa — use-a; a do Windows só p/ extras exclusivos.",
+        "category": "Jogos"
+      },
+      "outlook": "uncertain"
+    },
+    {
+      "name": "Microsoft Flight Simulator",
+      "status": "nao-funciona",
+      "kind": "app",
+      "category": "Games",
+      "match": {
+        "file": "flightsimulator",
+        "product": "flight simulator"
+      },
+      "summary": "Not possible in the engine",
+      "why": "Microsoft Store/GDK + D3D12 + 100+ GB streaming; out of reach.",
+      "alt": "",
+      "pt": {
+        "summary": "Não é possível no motor",
+        "why": "Microsoft Store/GDK + D3D12 + 100+ GB; fora de alcance.",
+        "category": "Jogos"
       }
     },
     {

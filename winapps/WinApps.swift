@@ -1340,10 +1340,12 @@ struct CompatibilityView: View {
     /// Ordem dos grupos na tabela (categoria do topo do JSON; aceita os nomes antigos em português).
     static let order: [String: Int] = [
         "productivity": 0, "produtividade": 0,
-        "games": 1, "jogos": 1,
-        "utilities": 2, "utilitários": 2,
-        "not supported": 3, "unsupported": 3, "não suportados": 3,
-        "by technology": 4, "por tecnologia": 4,
+        "engineering & cad": 1, "design & media": 2, "business & finance": 3,
+        "development & it": 4, "science & education": 5,
+        "games": 6, "jogos": 6,
+        "utilities": 7, "utilitários": 7,
+        "not supported": 8, "unsupported": 8, "não suportados": 8,
+        "by technology": 9, "por tecnologia": 9,
     ]
     static let repoTable = URL(string: "https://github.com/matthfaria96/winapps/blob/master/"
                                    + (UILang.isPT ? "COMPATIBILIDADE.md" : "COMPATIBILITY.md"))!
