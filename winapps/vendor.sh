@@ -40,13 +40,23 @@ if [ ! -d "$OUT/dxmt-v$DXMT_VER" ]; then
 fi
 
 # DXMT com as correções do WinApps (engine/build-dxmt.sh): WebView2/Chromium aparece
-DXMT_BUILD="${DXMT_BUILD:-$HOME/Library/Caches/WinApps/dxmt-build/out}"
-if [ -f "$DXMT_BUILD/x86_64-windows/d3d11.dll" ] && [ -f "$DXMT_BUILD/x86_64-windows/dxgi.dll" ]; then
-    echo "==> DXMT $DXMT_VER + correções do WinApps"
+# DXMT_BUILD força um build; sem ele, procura nos caminhos usados aqui (cache e volume)
+if [ -z "${DXMT_BUILD:-}" ]; then
+    for c in "$HOME/Library/Caches/WinApps/dxmt-build/out" \
+             "$HOME/Library/Caches/WinApps/dxmt-official/out" \
+             /Volumes/WinAppsDev/dxmt-official/out; do
+        if [ -f "$c/x86_64-windows/d3d11.dll" ]; then DXMT_BUILD="$c"; break; fi
+    done
+fi
+if [ -n "${DXMT_BUILD:-}" ] && [ -f "$DXMT_BUILD/x86_64-windows/d3d11.dll" ] \
+        && [ -f "$DXMT_BUILD/x86_64-windows/dxgi.dll" ]; then
+    echo "==> DXMT $DXMT_VER + correções do WinApps ($DXMT_BUILD)"
     cp "$DXMT_BUILD"/x86_64-windows/{dxgi,d3d11}.dll "$OUT/dxmt-v$DXMT_VER/x86_64-windows/"
     echo "patches/dxmt aplicados" >"$OUT/dxmt-v$DXMT_VER/WINAPPS-PATCHES"
+elif [ -f "$OUT/dxmt-v$DXMT_VER/WINAPPS-PATCHES" ]; then
+    echo "==> DXMT $DXMT_VER: build corrigido não encontrado, mantendo o de vendor/ (já corrigido)"
 else
-    echo "!! DXMT corrigido não encontrado (rode: bash ../engine/build-dxmt.sh): WebView2 ficará em branco"
+    echo "!! DXMT corrigido não encontrado (defina DXMT_BUILD=…/out ou rode: bash ../engine/build-dxmt.sh): WebView2 ficará em branco" >&2
 fi
 
 # módulos corrigidos do motor (gerados por engine/build-engine.sh [--build-only])
